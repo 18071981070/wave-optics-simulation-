@@ -436,10 +436,7 @@ class OpticalCalculator:
         """
         x = np.linspace(-screen_width/2, screen_width/2, num_points)
         
-        d = wavelength / 4 / (n_e - n_o) if waveplate_type == 'quarter' else wavelength / 2 / (n_e - n_o)
-        delta = 2 * np.pi * (n_e - n_o) * d / wavelength
-        
-        phi = np.linspace(0, 2 * np.pi, num_points)
+        delta = np.pi / 2 if waveplate_type == 'quarter' else np.pi
         
         cos_p = np.cos(polarizer_angle)
         sin_p = np.sin(polarizer_angle)
@@ -448,21 +445,26 @@ class OpticalCalculator:
         cos_w = np.cos(waveplate_angle)
         sin_w = np.sin(waveplate_angle)
         
-        jones_matrix = np.array([
-            [cos_a * cos_w + sin_a * sin_w * np.cos(delta), 
-             cos_a * sin_w - sin_a * cos_w * np.cos(delta)],
-            [sin_a * cos_w - cos_a * sin_w * np.cos(delta), 
-             sin_a * sin_w + cos_a * cos_w * np.cos(delta)]
-        ])
+        angle_diff = analyzer_angle - polarizer_angle
+        angle_wp = analyzer_angle - waveplate_angle
+        angle_pw = waveplate_angle - polarizer_angle
         
-        e_field_in = np.array([cos_p, sin_p])
-        e_field_out = jones_matrix @ e_field_in
-        intensity = np.abs(e_field_out[0]) ** 2 + np.abs(e_field_out[1]) ** 2
+        interference_term = np.cos(2 * angle_diff) - \
+                          np.cos(delta) * np.cos(2 * angle_wp) * np.cos(2 * angle_pw) + \
+                          np.sin(delta) * np.sin(2 * angle_wp) * np.sin(2 * angle_pw)
+        
+        base_intensity = 0.5 * (1 + interference_term)
+        
+        spatial_freq = 50
+        interference_modulation = 0.3 * np.sin(x * spatial_freq)
+        
+        intensity = base_intensity + interference_modulation
         
         intensity = np.clip(intensity, 0, 1)
-        intensity = np.tile(intensity, num_points // len(intensity))
-        if len(intensity) < num_points:
-            intensity = np.append(intensity, intensity[:num_points - len(intensity)])
+        
+        max_int = np.max(intensity)
+        if max_int > 0:
+            intensity = intensity / max_int
         
         extinction_ratio = np.min(intensity) / (np.max(intensity) + 1e-10)
         
@@ -476,7 +478,6 @@ class OpticalCalculator:
             'min_intensity': np.min(intensity),
             'phase_retardation': np.degrees(delta),
             'birefringence': n_e - n_o,
-            'waveplate_thickness': d,
             'phase_difference': delta
         }
         

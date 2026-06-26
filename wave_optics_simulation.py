@@ -15,7 +15,16 @@ from visualization import WaveOpticsVisualizer
 from parameter_validation import ParameterValidator
 from teaching_module import TeachingModule
 from exercise_module import ExerciseModule
-from agent_module import PhysicsAgent
+try:
+    from agent_module import PhysicsAgent
+except ImportError:
+    from agent_module_v2 import EnhancedPhysicsAgent as PhysicsAgent
+
+try:
+    from agent_module_v2 import EnhancedPhysicsAgent
+    DEFAULT_AGENT = EnhancedPhysicsAgent
+except ImportError:
+    DEFAULT_AGENT = PhysicsAgent
 
 st.set_page_config(
     page_title="波动光学交互式仿真平台",
@@ -435,7 +444,10 @@ exercise = ExerciseModule()
 
 # 初始化智能体（使用session_state保持状态）
 if 'agent' not in st.session_state:
-    st.session_state.agent = PhysicsAgent()
+    try:
+        st.session_state.agent = DEFAULT_AGENT()
+    except:
+        st.session_state.agent = PhysicsAgent()
 
 agent = st.session_state.agent
 
@@ -694,6 +706,36 @@ with col1:
 
 with col2:
     st.markdown("### 📊 仿真结果")
+
+    if experiment_mode == "双缝干涉":
+        st.markdown("#### 🔬 光路原理图")
+        st.image("微信图片_20260626165435_1415_1.png", use_column_width=True, caption="双缝干涉光路原理图")
+        st.markdown("---")
+    
+    if experiment_mode == "单缝衍射":
+        st.markdown("#### 🔬 光路原理图")
+        st.image("微信图片_20260626170035_1416_1.png", use_column_width=True, caption="单缝衍射光路原理图")
+        st.markdown("---")
+    
+    if experiment_mode == "迈克耳孙干涉":
+        st.markdown("#### 🔬 光路原理图")
+        st.image("ae7563b893900f4e5076e869392055bd.jpg", use_column_width=True, caption="迈克耳孙干涉光路原理图")
+        st.markdown("---")
+    
+    if experiment_mode == "多缝光栅":
+        st.markdown("#### 🔬 光路原理图")
+        st.image("微信图片_20260626204545_1417_1.png", use_column_width=True, caption="多缝光栅衍射光路原理图")
+        st.markdown("---")
+    
+    if experiment_mode == "薄膜干涉":
+        st.markdown("#### 🔬 光路原理图")
+        st.image("微信图片_20260626204819_1418_1.png", use_column_width=True, caption="薄膜干涉光路原理图")
+        st.markdown("---")
+    
+    if experiment_mode == "偏振干涉":
+        st.markdown("#### 🔬 光路原理图")
+        st.image("微信图片_20260626204946_1419_1.png", use_column_width=True, caption="偏振干涉光路原理图")
+        st.markdown("---")
 
     if intensity is not None:
         if experiment_mode in ["双缝干涉", "单缝衍射", "多缝光栅", "偏振干涉"]:
@@ -1235,56 +1277,278 @@ with st.expander("📐 物理公式速查"):
     """)
 
 with st.expander("🤖 智能助手", expanded=False):
-    st.markdown("## 🤖 波动光学智能助手")
+    st.markdown("## 🤖 智能助手")
+    
+    # API连接状态显示和测试
+    st.markdown("**🔌 API连接状态：**")
+    col_status1, col_status2 = st.columns([2, 1])
+    with col_status1:
+        if hasattr(agent, 'api_status'):
+            status_colors = {
+                "connected": "🟢",
+                "disconnected": "🔴",
+                "timeout": "🟡",
+                "error": "🔴",
+                "unknown": "⚪"
+            }
+            status_texts = {
+                "connected": "已连接",
+                "disconnected": "未连接",
+                "timeout": "连接超时",
+                "error": "连接错误",
+                "unknown": "未知状态"
+            }
+            st.markdown(f"""
+            <div style="padding: 8px 12px; border-radius: 8px; background-color: {'#e8f5e9' if agent.api_status == 'connected' else '#ffebee'};">
+                {status_colors.get(agent.api_status, '⚪')} **{status_texts.get(agent.api_status, '未知')}**
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if agent.api_error_message:
+                st.warning(f"⚠️ {agent.api_error_message}")
+    with col_status2:
+        if hasattr(agent, 'test_api_connection'):
+            if st.button("🔍 测试连接", key="test_api"):
+                with st.spinner("正在测试连接..."):
+                    success = agent.test_api_connection()
+                    if success:
+                        st.success("✅ API连接成功！")
+                    else:
+                        st.error(f"❌ 连接失败：{agent.api_error_message}")
+    
+    st.markdown("---")
+    
+    # 传递实验上下文给智能体
+    if hasattr(agent, 'set_experiment_context'):
+        current_params = {}
+        if experiment_mode == "双缝干涉":
+            current_params = {
+                "波长": f"{wavelength*1e9:.0f} nm",
+                "缝距": f"{slit_distance*1e3:.3f} mm",
+                "屏距": f"{screen_distance} m"
+            }
+        elif experiment_mode == "单缝衍射":
+            current_params = {
+                "波长": f"{wavelength*1e9:.0f} nm",
+                "缝宽": f"{slit_width*1e3:.3f} mm",
+                "屏距": f"{screen_distance} m"
+            }
+        elif experiment_mode == "多缝光栅":
+            current_params = {
+                "波长": f"{wavelength*1e9:.0f} nm",
+                "光栅常数": f"{slit_distance*1e6:.0f} μm",
+                "缝数": num_slits
+            }
+        elif experiment_mode == "迈克耳孙干涉":
+            current_params = {
+                "波长": f"{wavelength*1e9:.0f} nm",
+                "镜面移动": f"{mirror_displacement*1e6:.1f} μm",
+                "条纹数": num_fringes
+            }
+        elif experiment_mode == "薄膜干涉":
+            current_params = {
+                "波长": f"{wavelength*1e9:.0f} nm",
+                "薄膜厚度": f"{film_thickness*1e9:.0f} nm",
+                "折射率": f"{n_film:.3f}"
+            }
+        elif experiment_mode == "偏振干涉":
+            current_params = {
+                "波长": f"{wavelength*1e9:.0f} nm",
+                "起偏器角度": f"{polarizer_angle}°",
+                "检偏器角度": f"{analyzer_angle}°",
+                "波片类型": waveplate_type
+            }
+        agent.set_experiment_context(experiment_mode, current_params)
+    
+    is_enhanced = hasattr(agent, 'switch_mode')
+    
+    # 智能体模式切换
+    if is_enhanced:
+        st.markdown("**🎯 对话模式：**")
+        agent_mode = st.radio(
+            "选择对话模式",
+            ["🔬 物理问答", "💬 通用对话"],
+            horizontal=True,
+            help="物理问答：专注波动光学问题 | 通用对话：回答各种问题"
+        )
+        
+        if "物理" in agent_mode:
+            agent.switch_mode("physics")
+        else:
+            agent.switch_mode("general")
+        
+        st.markdown("---")
+    
+    # 当前实验信息
+    if is_enhanced and hasattr(agent, 'current_experiment') and agent.current_experiment:
+        st.markdown(f"""
+        <div class="info-box">
+            📌 当前实验：**{agent.current_experiment}**
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if hasattr(agent, 'suggest_parameters'):
+            suggestion = agent.suggest_parameters()
+            if suggestion:
+                st.markdown(suggestion)
+        
+        st.markdown("---")
     
     # API配置
-    col_api1, col_api2 = st.columns([3, 1])
-    with col_api1:
-        api_url = st.text_input("千问API地址", value="http://localhost:8000/v1/chat/completions", key="api_url")
-    with col_api2:
-        model_name = st.text_input("模型名称", value="Qwen", key="model_name")
-    if st.button("应用配置"):
-        agent.set_api_config(api_url, model_name)
-        st.success("API配置已更新！")
+    st.markdown("**⚙️ API配置：**")
+    
+    # API类型选择
+    col_api_type, col_api_key = st.columns([1, 2])
+    with col_api_type:
+        api_type = st.radio(
+            "选择API类型",
+            ["阿里云DashScope", "本地Ollama"],
+            horizontal=True,
+            key="api_type",
+            help="DashScope：使用阿里云千问API（需要API Key）| Ollama：使用本地Ollama服务"
+        )
+    
+    if api_type == "阿里云DashScope":
+        with col_api_key:
+            dashscope_api_key = st.text_input(
+                "阿里云API Key",
+                value="",
+                key="dashscope_api_key",
+                type="password",
+                help="请输入您的阿里云DashScope API Key"
+            )
+        
+        if hasattr(agent, 'set_api_type') and hasattr(agent, 'set_api_key'):
+            agent.set_api_type("dashscope")
+            agent.set_api_key(dashscope_api_key)
+            
+            st.info("💡 使用阿里云DashScope API，请确保您的API Key已正确输入")
+            st.markdown("""
+            **获取API Key步骤：**
+            1. 访问 [阿里云DashScope控制台](https://dashscope.console.aliyun.com/)
+            2. 登录您的阿里云账号
+            3. 点击"API Key管理"
+            4. 创建或复制您的API Key
+            """)
+    else:
+        col_ollama_url, col_ollama_model = st.columns([3, 1])
+        with col_ollama_url:
+            ollama_url = st.text_input(
+                "Ollama API地址",
+                value="http://localhost:8000/v1/chat/completions",
+                key="ollama_url",
+                help="本地Ollama服务地址"
+            )
+        with col_ollama_model:
+            ollama_model = st.text_input(
+                "模型名称",
+                value="Qwen",
+                key="ollama_model",
+                help="Ollama中已下载的模型名称"
+            )
+        
+        if hasattr(agent, 'set_api_type') and hasattr(agent, 'set_api_config'):
+            agent.set_api_type("ollama")
+            agent.set_api_config(ollama_url, ollama_model)
+            
+            st.info("💡 使用本地Ollama服务，请确保已启动Ollama：")
+            st.markdown("""
+            **启动Ollama：**
+            1. 安装Ollama：[下载地址](https://ollama.com/download)
+            2. 下载模型：`ollama pull qwen`
+            3. 启动服务：`ollama serve`（或通过Ollama应用启动）
+            """)
+    
+    st.markdown("---")
     
     # 显示对话历史
     chat_container = st.container()
     with chat_container:
-        for msg in agent.get_history():
-            if msg["role"] == "user":
-                st.markdown(f"**您：** {msg['content']}")
-            else:
-                st.markdown(f"**助手：** {msg['content']}")
+        st.markdown("**💬 对话历史：**")
+        history = []
+        if hasattr(agent, 'conversation_history'):
+            history = agent.conversation_history
+        elif hasattr(agent, 'get_history'):
+            history = agent.get_history()
+        
+        if not history:
+            st.info("👋 还没有对话记录，开始提问吧！")
+        else:
+            for msg in history:
+                if msg["role"] == "user":
+                    st.markdown(f'<div class="user-message">{msg["content"]}</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div class="assistant-message">{msg["content"]}</div>', unsafe_allow_html=True)
+    
+    st.markdown("---")
     
     # 用户输入
-    user_input = st.text_input("请输入您的问题（例如：双缝干涉的原理是什么？）：", key="agent_input")
+    user_input = st.text_area(
+        "💭 请输入您的问题：",
+        placeholder="例如：双缝干涉的原理是什么？如何计算条纹间距？",
+        key="agent_input",
+        height=80
+    )
     
     col_agent1, col_agent2 = st.columns([4, 1])
     with col_agent1:
-        if st.button("发送"):
+        if st.button("🚀 发送", type="primary", key="send_msg"):
             if user_input.strip():
-                response = agent.generate_response(user_input)
-                # 刷新页面以显示新消息
+                with st.spinner("🤔 正在思考..."):
+                    response = agent.generate_response(user_input)
                 st.experimental_rerun()
     
     with col_agent2:
-        if st.button("清空对话"):
-            agent.clear_history()
+        if st.button("🗑️ 清空", key="clear_chat"):
+            if hasattr(agent, 'clear_history'):
+                agent.clear_history()
+            elif hasattr(agent, 'conversation_history'):
+                agent.conversation_history = []
             st.experimental_rerun()
     
     # 快捷提问按钮
-    st.markdown("**快捷提问：**")
-    quick_questions = [
-        "双缝干涉的原理是什么？",
-        "单缝衍射的公式是什么？",
-        "如何测量光波长？",
-        "偏振态如何影响干涉？",
-        "迈克耳孙干涉仪的应用"
-    ]
+    st.markdown("**⚡ 快捷提问：**")
     
-    cols = st.columns(5)
+    quick_questions = []
+    if is_enhanced and hasattr(agent, 'get_quick_questions'):
+        quick_questions = agent.get_quick_questions()
+    elif is_enhanced and hasattr(agent, 'current_mode'):
+        if agent.current_mode == "physics":
+            quick_questions = [
+                "双缝干涉的原理是什么？",
+                "单缝衍射的公式是什么？",
+                "如何测量光波长？",
+                "偏振态如何影响干涉？",
+                "迈克耳孙干涉仪的应用"
+            ]
+        else:
+            quick_questions = [
+                "你能帮我做什么？",
+                "如何学习物理？",
+                "有什么好用的工具？",
+                "怎样提高效率？",
+                "解释一下干涉现象"
+            ]
+    else:
+        quick_questions = [
+            "双缝干涉的原理是什么？",
+            "单缝衍射的公式是什么？",
+            "如何测量光波长？",
+            "偏振态如何影响干涉？",
+            "迈克耳孙干涉仪的应用"
+        ]
+    
+    cols = st.columns(min(5, len(quick_questions)))
     for i, q in enumerate(quick_questions):
         with cols[i]:
-            if st.button(q, key=f"quick_{i}"):
-                response = agent.generate_response(q)
+            if st.button(q, key=f"quick_{i}", help=f"快速提问：{q}"):
+                with st.spinner("🤔 正在回答..."):
+                    response = agent.generate_response(q)
                 st.experimental_rerun()
+    
+    # 高级功能提示
+    st.markdown("---")
+    if not is_enhanced:
+        st.info("💡 **提示**：安装 agent_module_v2.py 可获得增强版智能体，支持多种对话模式！")
+    else:
+        st.success("✨ 增强版智能体已启用！支持实验上下文感知和智能问答。")
