@@ -2,12 +2,19 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
+from matplotlib.font_manager import FontProperties, fontManager
 import pandas as pd
 from io import BytesIO
 import json
 import time
+import os
 
-matplotlib.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'Arial Unicode MS']
+font_path = os.path.join(os.path.dirname(__file__), 'simhei.ttf')
+if os.path.exists(font_path):
+    fontManager.addfont(font_path)
+    matplotlib.rcParams['font.sans-serif'] = ['SimHei']
+else:
+    matplotlib.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'Arial Unicode MS']
 matplotlib.rcParams['axes.unicode_minus'] = False
 
 from optical_calculator import OpticalCalculator
