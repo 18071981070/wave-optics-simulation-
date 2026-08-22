@@ -31,6 +31,35 @@ matplotlib.rcParams.update({
     'axes.facecolor': '#fbfdff',
 })
 
+
+def _load_streamlit_secrets_to_environ():
+    """把 Streamlit Cloud Secrets 中的 API 配置注入环境变量，供 AI 助手读取。
+    本地无 secrets.toml 时静默跳过，不影响环境变量方式。"""
+    try:
+        _secrets = st.secrets
+    except Exception:
+        return
+    # DashScope API Key（任一别名均可）
+    for _name in ("DASHSCOPE_API_KEY", "DASHSCOPE_KEY", "QWEN_API_KEY"):
+        try:
+            _val = _secrets[_name]
+        except (KeyError, TypeError):
+            continue
+        if _val and not os.getenv(_name):
+            os.environ[_name] = str(_val)
+    # 可选的自定义端点/模型
+    for _env in ("DASHSCOPE_API_URL", "DASHSCOPE_MODEL",
+                 "OPENAI_BASE_URL", "OPENAI_MODEL", "OPENAI_API_KEY"):
+        try:
+            _val = _secrets[_env]
+        except (KeyError, TypeError):
+            continue
+        if _val and not os.getenv(_env):
+            os.environ[_env] = str(_val)
+
+
+_load_streamlit_secrets_to_environ()
+
 from optical_calculator import OpticalCalculator
 try:
     from agent_module import PhysicsAgent
