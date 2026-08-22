@@ -1607,7 +1607,7 @@ with col2:
     with st.expander("查看实验光路与装置结构", expanded=False):
         st.image(
             load_uniform_diagram(diagram_files[experiment_mode]),
-            use_column_width=True,
+            use_container_width=True,
             caption=f"{experiment_mode}光路示意",
         )
 
