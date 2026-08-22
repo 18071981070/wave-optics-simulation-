@@ -2,12 +2,12 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
-from matplotlib.font_manager import FontProperties, fontManager
+from matplotlib.font_manager import fontManager
+from matplotlib.colors import LinearSegmentedColormap
 import pandas as pd
 from io import BytesIO
-import json
-import time
 import os
+from PIL import Image
 
 font_path = os.path.join(os.path.dirname(__file__), 'simhei.ttf')
 if os.path.exists(font_path):
@@ -16,12 +16,22 @@ if os.path.exists(font_path):
 else:
     matplotlib.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'Arial Unicode MS']
 matplotlib.rcParams['axes.unicode_minus'] = False
+matplotlib.rcParams.update({
+    'font.size': 11.5,
+    'axes.titlesize': 14,
+    'axes.labelsize': 11.5,
+    'axes.titleweight': 'bold',
+    'axes.edgecolor': '#cbd5e1',
+    'axes.labelcolor': '#334155',
+    'xtick.color': '#475569',
+    'ytick.color': '#475569',
+    'grid.color': '#cbd5e1',
+    'grid.alpha': 0.35,
+    'figure.facecolor': '#ffffff',
+    'axes.facecolor': '#fbfdff',
+})
 
 from optical_calculator import OpticalCalculator
-from visualization import WaveOpticsVisualizer
-from parameter_validation import ParameterValidator
-from teaching_module import TeachingModule
-from exercise_module import ExerciseModule
 try:
     from agent_module import PhysicsAgent
 except ImportError:
@@ -406,48 +416,679 @@ st.markdown("""
         border-radius: 12px;
         border: 1px solid #e2e8f0;
     }
+
+    /* 教学平台视觉系统 */
+    :root {
+        --primary: #0f766e;
+        --primary-light: #14b8a6;
+        --accent: #f59e0b;
+        --bg-main: linear-gradient(180deg, #f0fdfa 0%, #f8fafc 42%, #eef2ff 100%);
+        --bg-card: rgba(255, 255, 255, 0.96);
+        --text-primary: #0f172a;
+        --text-secondary: #475569;
+    }
+
+    .stApp {
+        background: var(--bg-main) !important;
+    }
+
+    /* Streamlit 重算时默认会降低旧内容透明度，造成明显白闪。 */
+    .stale, [data-stale="true"] {
+        opacity: 1 !important;
+    }
+
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #f8fffe 0%, #ecfeff 100%) !important;
+        border-right: 1px solid #ccfbf1;
+    }
+
+    .main-header {
+        color: #0f172a;
+        background: none;
+        -webkit-text-fill-color: #0f172a;
+        text-shadow: none;
+        margin-top: 0.25rem;
+    }
+
+    .sub-header {
+        color: #475569;
+        margin-bottom: 1.25rem;
+    }
+
+    .hero-panel {
+        background: linear-gradient(120deg, #0f172a 0%, #134e4a 58%, #0f766e 100%);
+        border-radius: 24px;
+        padding: 30px 34px;
+        color: white;
+        box-shadow: 0 18px 50px rgba(15, 23, 42, 0.16);
+        margin: 0.5rem 0 1.1rem 0;
+    }
+
+    .hero-kicker {
+        color: #99f6e4;
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 0.16em;
+        margin-bottom: 8px;
+    }
+
+    .hero-title {
+        font-size: 2.25rem;
+        font-weight: 900;
+        line-height: 1.2;
+        margin-bottom: 10px;
+    }
+
+    .hero-copy {
+        color: #d5f5f0;
+        font-size: 1rem;
+        margin: 0;
+    }
+
+    .workflow-strip {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+        margin: 0.8rem 0 1.2rem 0;
+    }
+
+    .workflow-step {
+        background: rgba(255, 255, 255, 0.95);
+        border: 1px solid #dbeafe;
+        border-radius: 14px;
+        padding: 13px 14px;
+        color: #334155;
+        font-weight: 700;
+        box-shadow: 0 5px 18px rgba(15, 23, 42, 0.05);
+    }
+
+    .workflow-step b {
+        display: block;
+        color: #0f766e;
+        font-size: 0.76rem;
+        letter-spacing: 0.08em;
+        margin-bottom: 4px;
+    }
+
+    .principle-panel, .teacher-panel, .link-panel {
+        background: rgba(255, 255, 255, 0.97);
+        border: 1px solid #dbeafe;
+        border-radius: 18px;
+        padding: 20px 22px;
+        box-shadow: 0 8px 26px rgba(15, 23, 42, 0.06);
+    }
+
+    .principle-panel {
+        border-left: 5px solid #0f766e;
+    }
+
+    .formula-focus {
+        background: #f0fdfa;
+        color: #115e59;
+        border-radius: 12px;
+        padding: 13px 16px;
+        font-family: Georgia, serif;
+        font-size: 1.14rem;
+        text-align: center;
+        border: 1px solid #99f6e4;
+        margin-top: 12px;
+    }
+
+    .function-grid {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 8px;
+        margin-bottom: 1rem;
+    }
+
+    .function-chip {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 10px 8px;
+        text-align: center;
+        color: #334155;
+        font-size: 0.86rem;
+        font-weight: 750;
+    }
+
+    .link-panel {
+        background: linear-gradient(135deg, #ecfeff 0%, #f0fdfa 100%);
+        border-color: #99f6e4;
+        margin-bottom: 0.8rem;
+    }
+
+    .link-flow {
+        color: #0f766e;
+        font-weight: 800;
+        text-align: center;
+        font-size: 0.95rem;
+    }
+
+    .instrument-stage {
+        display: grid;
+        grid-template-columns: 0.9fr 1.3fr 0.9fr;
+        align-items: center;
+        gap: 12px;
+        min-height: 120px;
+        padding: 18px;
+        margin-bottom: 0.9rem;
+        border-radius: 18px;
+        background: #07111f;
+        color: #e2e8f0;
+        border: 1px solid #1e293b;
+        overflow: hidden;
+    }
+
+    .instrument-node {
+        padding: 14px;
+        background: rgba(15, 23, 42, 0.86);
+        border: 1px solid #334155;
+        border-radius: 12px;
+        text-align: center;
+    }
+
+    .instrument-node small {
+        display: block;
+        color: #94a3b8;
+        margin-bottom: 5px;
+    }
+
+    .instrument-value {
+        color: #5eead4;
+        font-size: 1.05rem;
+        font-weight: 800;
+    }
+
+    .beam-line {
+        height: 4px;
+        border-radius: 8px;
+        box-shadow: 0 0 18px currentColor;
+        position: relative;
+    }
+
+    .beam-line:after {
+        content: "";
+        position: absolute;
+        right: -6px;
+        top: -4px;
+        border-left: 9px solid currentColor;
+        border-top: 6px solid transparent;
+        border-bottom: 6px solid transparent;
+    }
+
+    .stButton>button {
+        background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);
+        box-shadow: 0 4px 14px rgba(15, 118, 110, 0.24);
+    }
+
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+        color: #0f766e !important;
+    }
+
+    .block-container {
+        max-width: 1760px;
+        padding-left: 2.25rem;
+        padding-right: 2.25rem;
+    }
+
+    [data-testid="stExpanderDetails"],
+    [data-testid="stExpanderDetails"] p,
+    [data-testid="stExpanderDetails"] label,
+    [data-testid="stAlert"] p,
+    div[data-testid="stRadio"] label p {
+        color: #0f172a !important;
+    }
+
+    [data-testid="stExpanderDetails"] {
+        padding-top: 0.5rem;
+        padding-bottom: 0.8rem;
+    }
+
+    /* Explicit text contrast for Streamlit components on the light lab theme. */
+    [data-testid="stMarkdownContainer"] > h1,
+    [data-testid="stMarkdownContainer"] > h2,
+    [data-testid="stMarkdownContainer"] > h3,
+    [data-testid="stMarkdownContainer"] > h4,
+    [data-testid="stMarkdownContainer"] > h5,
+    [data-testid="stMarkdownContainer"] > h6,
+    [data-testid="stMarkdownContainer"] > p,
+    [data-testid="stMarkdownContainer"] > ul,
+    [data-testid="stMarkdownContainer"] > ol,
+    [data-testid="stMarkdownContainer"] li,
+    [data-testid="stWidgetLabel"] p,
+    [data-testid="stCaptionContainer"] p,
+    [data-testid="stExpander"] summary,
+    [data-testid="stExpander"] summary span,
+    div[data-testid="stRadio"] label p {
+        color: #0f172a !important;
+        -webkit-text-fill-color: #0f172a !important;
+        opacity: 1 !important;
+    }
+
+    [data-testid="stAlert"] * {
+        color: #172033 !important;
+        -webkit-text-fill-color: #172033 !important;
+        opacity: 1 !important;
+    }
+
+    [data-testid="stButton"] button,
+    [data-testid="stButton"] button * {
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+        opacity: 1 !important;
+    }
+
+    input, textarea, [data-baseweb="select"] {
+        color: #0f172a !important;
+        -webkit-text-fill-color: #0f172a !important;
+    }
+
+    /* 2026 lab-console polish: one coherent, projector-friendly UI layer. */
+    :root {
+        --lab-ink: #14212b;
+        --lab-muted: #52616d;
+        --lab-line: #d9e2e8;
+        --lab-surface: #ffffff;
+        --lab-canvas: #f3f6f8;
+        --lab-teal: #087f73;
+        --lab-teal-dark: #075e57;
+        --lab-amber: #d97706;
+        --lab-blue: #2563eb;
+    }
+
+    html, body, [class*="css"] {
+        font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+    }
+
+    .stApp {
+        background: var(--lab-canvas) !important;
+    }
+
+    [data-testid="stHeader"] {
+        background: rgba(243, 246, 248, 0.92) !important;
+        backdrop-filter: blur(10px);
+    }
+
+    [data-testid="stSidebar"] {
+        background: #f9fbfc !important;
+        border-right: 1px solid var(--lab-line) !important;
+    }
+
+    [data-testid="stSidebar"] > div:first-child {
+        padding-top: 1.25rem;
+    }
+
+    [data-testid="stSidebar"] h2 {
+        color: var(--lab-ink) !important;
+        font-size: 0.93rem !important;
+        margin: 1rem 0 0.4rem !important;
+        padding-bottom: 0.42rem;
+        border-bottom: 1px solid var(--lab-line);
+    }
+
+    .block-container {
+        width: min(100%, 1780px);
+        max-width: 1780px;
+        padding: 1.35rem 2.35rem 3.5rem;
+    }
+
+    .hero-panel {
+        position: relative;
+        overflow: hidden;
+        min-height: 150px;
+        padding: 26px 32px 24px;
+        margin: 0 0 0.75rem;
+        border: 1px solid #22333e;
+        border-radius: 8px;
+        background: #14212b;
+        box-shadow: 0 10px 28px rgba(20, 33, 43, 0.14);
+    }
+
+    .hero-panel::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 5px;
+        background: linear-gradient(90deg, var(--lab-teal) 0 58%, var(--lab-amber) 58% 76%, var(--lab-blue) 76% 100%);
+    }
+
+    .hero-kicker {
+        color: #6ee7d8;
+        font-size: 0.72rem;
+        letter-spacing: 0.12em;
+        margin-bottom: 7px;
+    }
+
+    .hero-title {
+        color: #ffffff !important;
+        -webkit-text-fill-color: #ffffff !important;
+        font-size: 2rem;
+        letter-spacing: 0;
+        margin-bottom: 8px;
+    }
+
+    .hero-copy {
+        max-width: 820px;
+        color: #d8e5e9 !important;
+        -webkit-text-fill-color: #d8e5e9 !important;
+        font-size: 0.96rem;
+        line-height: 1.6;
+    }
+
+    .workflow-strip {
+        gap: 8px;
+        margin: 0 0 0.7rem;
+    }
+
+    .workflow-step {
+        position: relative;
+        min-height: 66px;
+        padding: 11px 13px 10px 16px;
+        border: 1px solid var(--lab-line);
+        border-radius: 6px;
+        background: var(--lab-surface);
+        color: #3c4b57;
+        font-size: 0.86rem;
+        box-shadow: none;
+    }
+
+    .workflow-step::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 3px;
+        background: var(--lab-teal);
+    }
+
+    .workflow-step b {
+        color: var(--lab-teal-dark);
+        font-size: 0.72rem;
+        letter-spacing: 0.04em;
+    }
+
+    .function-grid {
+        gap: 7px;
+        margin-bottom: 1rem;
+    }
+
+    .function-chip {
+        border: 1px solid var(--lab-line);
+        border-radius: 4px;
+        padding: 7px 8px;
+        background: #edf6f5;
+        color: #27514d;
+        font-size: 0.8rem;
+        box-shadow: none;
+    }
+
+    .principle-panel, .teacher-panel, .link-panel {
+        border: 1px solid var(--lab-line);
+        border-radius: 7px;
+        background: var(--lab-surface);
+        box-shadow: 0 4px 14px rgba(20, 33, 43, 0.05);
+    }
+
+    .principle-panel {
+        padding: 20px 24px;
+        border-left: 4px solid var(--lab-teal);
+    }
+
+    .formula-focus, .formula-box {
+        border: 1px solid #a9d8d2;
+        border-radius: 5px;
+        background: #f0f9f8;
+        color: #0b514b !important;
+        font-family: Georgia, "Times New Roman", serif;
+        letter-spacing: 0;
+    }
+
+    .section-heading {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 1.45rem 0 0.65rem;
+        padding-bottom: 0.65rem;
+        border-bottom: 1px solid var(--lab-line);
+    }
+
+    .section-number {
+        display: inline-grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        flex: 0 0 34px;
+        border-radius: 4px;
+        background: var(--lab-teal);
+        color: #ffffff;
+        font-size: 0.82rem;
+        font-weight: 800;
+    }
+
+    .section-heading strong {
+        display: block;
+        color: var(--lab-ink);
+        font-size: 1.12rem;
+        line-height: 1.25;
+    }
+
+    .section-heading small {
+        display: block;
+        margin-top: 3px;
+        color: var(--lab-muted);
+        font-size: 0.8rem;
+        line-height: 1.35;
+    }
+
+    .link-panel {
+        margin-bottom: 0.65rem;
+        padding: 11px 16px;
+        background: #edf7f6;
+        border-color: #b8ddd8;
+    }
+
+    .link-flow {
+        color: #155e58;
+        font-size: 0.88rem;
+        letter-spacing: 0;
+    }
+
+    .instrument-stage {
+        min-height: 112px;
+        margin-bottom: 0.75rem;
+        padding: 16px;
+        border: 1px solid #263b49;
+        border-radius: 7px;
+        background: #101b24;
+    }
+
+    .instrument-node {
+        min-width: 0;
+        padding: 12px;
+        border: 1px solid #38505f;
+        border-radius: 5px;
+        background: #192a35;
+    }
+
+    .instrument-node small { color: #aebdc6; }
+    .instrument-value { color: #72e5d8; font-size: 1rem; }
+
+    div[data-testid="stMetric"] {
+        min-height: 96px;
+        padding: 14px 16px;
+        border: 1px solid var(--lab-line);
+        border-top: 3px solid var(--lab-teal);
+        border-radius: 5px;
+        background: var(--lab-surface);
+        box-shadow: none;
+        text-align: left;
+    }
+
+    div[data-testid="stMetric"] label {
+        color: var(--lab-muted) !important;
+        font-size: 0.76rem;
+        letter-spacing: 0;
+        text-transform: none;
+    }
+
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+        color: var(--lab-ink) !important;
+        font-size: 1.28rem;
+        line-height: 1.35;
+    }
+
+    [data-testid="stAlert"] {
+        border-radius: 5px !important;
+        border-width: 1px !important;
+    }
+
+    [data-testid="stExpander"] {
+        overflow: hidden;
+        border: 1px solid var(--lab-line) !important;
+        border-radius: 5px !important;
+        background: var(--lab-surface) !important;
+        box-shadow: none !important;
+    }
+
+    [data-testid="stExpander"] summary {
+        min-height: 48px;
+        font-weight: 700;
+    }
+
+    .stButton > button {
+        min-height: 42px;
+        border: 1px solid var(--lab-teal-dark);
+        border-radius: 5px;
+        background: var(--lab-teal);
+        box-shadow: none;
+        transition: background 0.16s ease, border-color 0.16s ease;
+    }
+
+    .stButton > button:hover {
+        transform: none;
+        border-color: #064e48;
+        background: var(--lab-teal-dark);
+        box-shadow: none;
+    }
+
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2px;
+        padding: 4px;
+        border: 1px solid var(--lab-line);
+        border-radius: 5px;
+        background: #e9eef1;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        min-height: 40px;
+        padding: 8px 16px;
+        border-radius: 3px;
+        color: #43525d;
+        font-size: 0.88rem;
+        letter-spacing: 0;
+    }
+
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        background: #ffffff;
+        color: var(--lab-teal-dark);
+        box-shadow: 0 1px 4px rgba(20, 33, 43, 0.12);
+    }
+
+    .stSelectbox > div > div,
+    [data-baseweb="input"] > div,
+    [data-baseweb="textarea"] > div,
+    div[data-testid="stRadio"] > div {
+        border-color: #cbd7de !important;
+        border-radius: 5px !important;
+        background: #ffffff !important;
+        box-shadow: none !important;
+    }
+
+    [data-testid="stSlider"] [role="slider"] {
+        border-color: var(--lab-teal) !important;
+        background: #ffffff !important;
+    }
+
+    [data-testid="stImage"], [data-testid="stPlotlyChart"] {
+        overflow: hidden;
+        border: 1px solid var(--lab-line);
+        border-radius: 5px;
+        background: #ffffff;
+    }
+
+    [data-testid="stImage"] img {
+        display: block;
+    }
+
+    [data-testid="stChatMessage"] {
+        margin: 0.55rem 0;
+        padding: 0.8rem 1rem;
+        border: 1px solid var(--lab-line);
+        border-radius: 6px;
+        background: #ffffff;
+        box-shadow: none;
+    }
+
+    [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+        border-color: #b8ddd8;
+        background: #edf7f6;
+    }
+
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] p,
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] li {
+        color: var(--lab-ink) !important;
+        -webkit-text-fill-color: var(--lab-ink) !important;
+    }
+
+    hr {
+        margin: 1.7rem 0 !important;
+        border-color: var(--lab-line) !important;
+    }
+
+    @media (max-width: 900px) {
+        .workflow-strip, .function-grid { grid-template-columns: repeat(2, 1fr); }
+        .hero-panel { min-height: auto; padding: 22px 20px 21px; }
+        .hero-title { font-size: 1.55rem; }
+        .hero-copy { font-size: 0.88rem; }
+        .block-container { padding: 1rem 0.8rem 2.5rem; }
+        .instrument-stage { grid-template-columns: 1fr; }
+        .beam-line { margin: 8px 18px; }
+        .section-heading { margin-top: 1.2rem; }
+    }
+
+    @media (max-width: 560px) {
+        .workflow-strip { grid-template-columns: 1fr 1fr; }
+        .function-grid { grid-template-columns: repeat(3, 1fr); }
+        .workflow-step { min-height: 62px; padding-right: 8px; }
+        .function-chip { font-size: 0.72rem; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<p class="main-header">🔬 波动光学交互式仿真平台</p>', unsafe_allow_html=True)
-st.markdown('<p class="sub-header">精准复现波动光学核心物理现象 | 衔接理论与实验 | 赋能分层教学与科研启蒙</p>', unsafe_allow_html=True)
-
-with st.expander("📋 平台功能介绍", expanded=True):
-    col_intro1, col_intro2, col_intro3, col_intro4 = st.columns(4)
-    with col_intro1:
-        st.markdown("""
-        <div class="feature-card">
-            <h4>🔭 6大光学实验</h4>
-            <p>双缝干涉、单缝衍射、多缝光栅、迈克耳孙干涉、薄膜干涉、偏振干涉</p>
-        </div>
-        """, unsafe_allow_html=True)
-    with col_intro2:
-        st.markdown("""
-        <div class="feature-card">
-            <h4>⚙️ 精准物理模型</h4>
-            <p>误差控制在1%以内，基于波动光学核心理论公式</p>
-        </div>
-        """, unsafe_allow_html=True)
-    with col_intro3:
-        st.markdown("""
-        <div class="feature-card">
-            <h4>📊 误差分析系统</h4>
-            <p>模拟系统误差、随机误差、环境光干扰等真实实验条件</p>
-        </div>
-        """, unsafe_allow_html=True)
-    with col_intro4:
-        st.markdown("""
-        <div class="feature-card">
-            <h4>📚 教学与练习</h4>
-            <p>分层教学指导、基础/进阶/创新习题、答案解析</p>
-        </div>
-        """, unsafe_allow_html=True)
+st.markdown("""
+<div class="hero-panel">
+    <div class="hero-kicker">WAVE OPTICS LAB · 实时计算与可视化</div>
+    <div class="hero-title">波动光学交互式仿真实验平台</div>
+    <p class="hero-copy">仪器状态、物理参数、实验图样与定量曲线同步联动，直接观察变量如何改变实验现象。</p>
+</div>
+<div class="workflow-strip">
+    <div class="workflow-step"><b>01 建立认知</b>先看现象与原理</div>
+    <div class="workflow-step"><b>02 明确规律</b>提取核心公式</div>
+    <div class="workflow-step"><b>03 操作探究</b>调节实验参数</div>
+    <div class="workflow-step"><b>04 证据解释</b>比较图像与数据</div>
+</div>
+<div class="function-grid">
+    <div class="function-chip">6类实验</div><div class="function-chip">实时仿真</div>
+    <div class="function-chip">仪器联动</div><div class="function-chip">误差模拟</div>
+    <div class="function-chip">分层任务</div><div class="function-chip">教师教学端</div>
+</div>
+""", unsafe_allow_html=True)
 
 calculator = OpticalCalculator()
-visualizer = WaveOpticsVisualizer()
-validator = ParameterValidator()
-teaching = TeachingModule()
-exercise = ExerciseModule()
 
 # 初始化智能体（使用session_state保持状态）
 if 'agent' not in st.session_state:
@@ -458,6 +1099,14 @@ if 'agent' not in st.session_state:
 
 agent = st.session_state.agent
 
+st.sidebar.markdown("## 👤 使用端")
+user_role = st.sidebar.radio(
+    "选择身份",
+    ["学生学习端", "教师教学端"],
+    horizontal=True,
+    help="学生端用于自主探究；教师端提供课堂组织、演示脚本和教学记录。"
+)
+
 st.sidebar.markdown("## 🎛️ 实验选择")
 
 experiment_mode = st.sidebar.selectbox(
@@ -465,62 +1114,205 @@ experiment_mode = st.sidebar.selectbox(
     ["双缝干涉", "单缝衍射", "多缝光栅", "迈克耳孙干涉", "薄膜干涉", "偏振干涉"]
 )
 
+mode_options = ["教学模式"] if user_role == "教师教学端" else ["实验模式", "教学模式", "练习模式"]
 mode_type = st.sidebar.radio(
     "模式",
-    ["实验模式", "教学模式", "练习模式"],
+    mode_options,
     help="实验模式：自由探索 | 教学模式：分步指导 | 练习模式：自我评估"
 )
 
-st.sidebar.markdown("## 🎨 可视化选项")
+st.sidebar.markdown("## 🔎 观察选项")
+show_phase = st.sidebar.checkbox("显示相位曲线", value=False, help="相位曲线用于进阶分析，默认隐藏以突出实验现象。")
+show_theory_marks = st.sidebar.checkbox("标注理论特征位置", value=True)
 
-color_scheme = st.sidebar.selectbox(
-    "配色方案",
-    ["viridis", "plasma", "inferno", "magma", "cividis", "coolwarm", "gray"],
-    index=0
-)
-
-show_3d = st.sidebar.checkbox("显示3D视图", value=False)
-show_phase = st.sidebar.checkbox("显示相位信息", value=False)
-show_path_diff = st.sidebar.checkbox("显示光程差曲线", value=False)
-
-st.sidebar.markdown("## ⚠️ 误差设置")
-enable_error = st.sidebar.checkbox("启用误差模拟", value=False)
+st.sidebar.markdown("## ⚠️ 测量环境")
+enable_error = st.sidebar.checkbox("加入真实测量噪声", value=False)
 if enable_error:
-    systematic_error = st.sidebar.slider("系统误差 (%)", 0, 10, 2) / 100
-    random_error = st.sidebar.slider("随机误差标准差", 0.0, 0.1, 0.02)
-    ambient_light = st.sidebar.slider("环境光强度", 0.0, 0.1, 0.0)
-    detector_noise = st.sidebar.slider("探测器噪声", 0.0, 0.05, 0.0)
+    random_error = st.sidebar.slider("综合噪声强度", 0.0, 0.08, 0.015, 0.005)
+    ambient_light = st.sidebar.slider("环境光背景", 0.0, 0.10, 0.01, 0.01)
+    systematic_error = 0.0
+    detector_noise = 0.0
 
 st.sidebar.markdown("## 🔄 快捷操作")
 if st.sidebar.button("一键重置参数"):
     st.session_state.clear()
-    st.experimental_rerun()
+    st.rerun()
 
 st.markdown("---")
 
-col1, col2 = st.columns([1, 2])
+experiment_overview = {
+    "双缝干涉": {
+        "goal": "验证相干光叠加规律，探究波长、缝距和屏距如何共同决定条纹间距。",
+        "principle": "两缝作为相干次波源；屏上各点因光程差不同形成周期性明暗条纹。",
+        "formula": "Δx ≈ λD / d；I = Ienv[1 + γcosδ]/2",
+        "prediction": "增大波长或屏距，条纹变疏；增大缝距，条纹变密；降低相干性，条纹对比度下降。",
+        "task": "只改变缝距，记录三组条纹间距，验证 Δx 与 d 的反比关系。",
+    },
+    "单缝衍射": {
+        "goal": "观察中央明纹与次级明纹，建立缝宽和衍射尺度之间的关系。",
+        "principle": "狭缝内各次波相干叠加，在满足特定光程差时形成暗纹。",
+        "formula": "a·sinθ = kλ；中央明纹宽度约为 2λD/a",
+        "prediction": "波长或屏距增大，中央明纹变宽；缝宽增大，衍射范围收窄。",
+        "task": "固定波长与屏距，改变缝宽并比较中央明纹宽度。",
+    },
+    "多缝光栅": {
+        "goal": "理解多光束干涉如何形成尖锐主极大，并探究分辨本领。",
+        "principle": "多缝干涉受单缝衍射包络调制；缝数决定主极大的锐度。",
+        "formula": "d·sinθ = kλ；R = kN",
+        "prediction": "缝数增加，主极大更尖锐；光栅常数减小，各级谱线分得更开。",
+        "task": "比较 N=10 与 N=40 的强度曲线，解释峰宽变化。",
+    },
+    "迈克耳孙干涉": {
+        "goal": "利用条纹移动放大微小位移，理解精密测量的基本方法。",
+        "principle": "分束后的两束光往返不同光程，再次叠加形成干涉。",
+        "formula": "ΔN = 2Δd / λ",
+        "prediction": "镜面每移动半个波长，视场中移动一条条纹。",
+        "task": "改变镜面位移，拟合条纹移动数与位移的线性关系。",
+    },
+    "薄膜干涉": {
+        "goal": "解释膜层颜色和增透现象，区分等厚干涉与等倾干涉。",
+        "principle": "薄膜上下表面反射光产生光程差，并可能伴随半波损失。",
+        "formula": "Δ = 2nd·cosθ（结合反射相位突变判断明暗）",
+        "prediction": "厚度、折射率或入射角变化都会改变干涉级次与强度分布。",
+        "task": "寻找可使当前波长反射减弱的膜厚组合，并说明依据。",
+    },
+    "偏振干涉": {
+        "goal": "观察偏振元件对光强和相位的控制，理解波片的作用。",
+        "principle": "正交偏振分量经波片产生相位延迟，再由检偏器投影后发生叠加。",
+        "formula": "Eout = R(θ)J(δ)R(-θ)Ein；I = |aᵀEout|²",
+        "prediction": "改变检偏器或波片角度，输出光强和偏振态同步变化。",
+        "task": "寻找消光位置与最大透光位置，比较 1/4 波片和 1/2 波片。",
+    },
+}
+
+overview = experiment_overview[experiment_mode]
+
+def wavelength_to_css(wavelength_nm):
+    """Return an approximate visible-spectrum color for the virtual beam."""
+    if wavelength_nm < 450:
+        return "#7c3aed"
+    if wavelength_nm < 495:
+        return "#2563eb"
+    if wavelength_nm < 570:
+        return "#10b981"
+    if wavelength_nm < 590:
+        return "#eab308"
+    if wavelength_nm < 620:
+        return "#f97316"
+    return "#ef4444"
+
+def wavelength_to_rgb(wavelength_nm):
+    """Approximate an sRGB color for a monochromatic visible beam."""
+    wavelength_nm = float(np.clip(wavelength_nm, 380, 780))
+    if wavelength_nm < 440:
+        red, green, blue = -(wavelength_nm - 440) / 60, 0.0, 1.0
+    elif wavelength_nm < 490:
+        red, green, blue = 0.0, (wavelength_nm - 440) / 50, 1.0
+    elif wavelength_nm < 510:
+        red, green, blue = 0.0, 1.0, -(wavelength_nm - 510) / 20
+    elif wavelength_nm < 580:
+        red, green, blue = (wavelength_nm - 510) / 70, 1.0, 0.0
+    elif wavelength_nm < 645:
+        red, green, blue = 1.0, -(wavelength_nm - 645) / 65, 0.0
+    else:
+        red, green, blue = 1.0, 0.0, 0.0
+    if wavelength_nm < 420:
+        factor = 0.3 + 0.7 * (wavelength_nm - 380) / 40
+    elif wavelength_nm > 700:
+        factor = 0.3 + 0.7 * (780 - wavelength_nm) / 80
+    else:
+        factor = 1.0
+    return tuple(np.clip(np.array([red, green, blue]) * factor, 0, 1))
+
+def optical_cmap(wavelength_nm):
+    rgb = wavelength_to_rgb(wavelength_nm)
+    return LinearSegmentedColormap.from_list("monochromatic_light", [(0, 0, 0), rgb], N=256)
+
+
+@st.cache_resource
+def load_uniform_diagram(path):
+    """Place apparatus images on one consistent 16:8 presentation canvas."""
+    with Image.open(path) as source:
+        diagram = source.convert("RGB")
+    resampling = getattr(Image, "Resampling", Image).LANCZOS
+    diagram.thumbnail((1480, 680), resampling)
+    canvas = Image.new("RGB", (1600, 760), "#f8fafc")
+    offset = ((canvas.width - diagram.width) // 2, (canvas.height - diagram.height) // 2)
+    canvas.paste(diagram, offset)
+    return canvas
+
+st.markdown(f"""
+<div class="principle-panel">
+    <b style="color:#0f766e; letter-spacing:.08em;">01 实验目标 · {experiment_mode}</b>
+    <h3 style="margin:.35rem 0 .45rem 0; color:#0f172a;">{overview['goal']}</h3>
+    <div style="color:#475569;"><b>物理原理：</b>{overview['principle']}</div>
+    <div class="formula-focus">{overview['formula']}</div>
+    <div style="color:#475569; margin-top:10px;"><b>调参前预测：</b>{overview['prediction']}</div>
+</div>
+""", unsafe_allow_html=True)
+
+if user_role == "教师教学端":
+    st.markdown("### 🧑‍🏫 教师教学工作台")
+    teacher_col1, teacher_col2, teacher_col3 = st.columns([1.1, 1.2, 1])
+    with teacher_col1:
+        st.info(f"**本课核心目标**\n\n{overview['goal']}")
+    with teacher_col2:
+        st.success(f"**课堂探究任务**\n\n{overview['task']}")
+    with teacher_col3:
+        class_phase = st.selectbox("课堂环节", ["现象导入", "规律建构", "变量探究", "证据交流", "拓展设计"])
+        demonstration_time = st.slider("单环节建议时长（分钟）", 1, 8, 3)
+        st.caption(f"当前：{class_phase} · 建议 {demonstration_time} 分钟后切换活动")
+    with st.expander("课堂演示脚本与评价记录", expanded=False):
+        script_col, record_col = st.columns(2)
+        with script_col:
+            st.markdown(f"""
+            **精简演示脚本**
+
+            1. 用一句话提出问题：{overview['prediction']}
+            2. 只改变一个关键变量，观察仪器、曲线和图样同步变化。
+            3. 用核心公式解释结果，不重复介绍平台优势。
+            4. 让学生完成任务：{overview['task']}
+            """)
+        with record_col:
+            st.text_area("课堂观察 / 学生证据", placeholder="记录学生预测、测量结果和典型解释……", height=155)
+
+# Controls are followed by a full-width live canvas. This keeps them together
+# while giving the simulation the complete page width.
+col1 = st.container()
+col2 = st.container()
 
 intensity = None
 phase_diff = None
 info = None
 original_intensity = None
 noise_info = None
+live_effect = ""
 
 with col1:
-    st.markdown("### ⚙️ 参数设置")
+    st.markdown("""
+    <div class="section-heading">
+        <span class="section-number">02</span>
+        <div><strong>参数调节</strong><small>改变任意参数，观察屏和定量曲线立即同步更新</small></div>
+    </div>
+    """, unsafe_allow_html=True)
 
     if experiment_mode == "双缝干涉":
-        wavelength = st.slider("波长 (nm)", 400, 760, 540, 10, help="可见光范围：400-760nm") * 1e-9
-        slit_distance = st.slider("缝距 (mm)", 0.1, 1.0, 0.5, 0.05, help="双缝之间的距离") * 1e-3
-        screen_distance = st.slider("屏距 (m)", 1.0, 5.0, 1.0, 0.1, help="双缝到屏幕的距离")
-        refractive_index = st.slider("介质折射率", 1.0, 1.5, 1.0, 0.05, help="光传播介质的折射率")
-        polarization_angle = st.slider("偏振角 (°)", 0, 90, 0, 5, help="线偏振光的偏振方向")
-        incident_angle = st.slider("入射角 (°)", -30, 30, 0, 1, help="入射光与法线的夹角")
-        coherence = st.slider("光源相干性", 0.5, 1.0, 1.0, 0.05, help="0为完全非相干，1为完全相干")
-        slit_width_uniformity = st.slider("缝宽均匀度", 0.5, 1.0, 1.0, 0.05, help="1为完全均匀")
+        controls = st.columns(5)
+        with controls[0]:
+            wavelength = st.slider("波长 (nm)", 400, 760, 540, 10, help="可见光范围：400-760nm") * 1e-9
+        with controls[1]:
+            slit_distance = st.slider("缝距 (mm)", 0.1, 1.0, 0.5, 0.05, help="双缝之间的距离") * 1e-3
+        with controls[2]:
+            slit_width = st.slider("单缝宽度 (mm)", 0.02, 0.20, 0.08, 0.01, help="决定干涉条纹的衍射包络") * 1e-3
+        with controls[3]:
+            screen_distance = st.slider("屏距 (m)", 1.0, 5.0, 1.0, 0.1, help="双缝到屏幕的距离")
+        with controls[4]:
+            coherence = st.slider("光源相干性", 0.5, 1.0, 1.0, 0.05, help="0为完全非相干，1为完全相干")
+        refractive_index = 1.0
+        incident_angle = 0.0
         
-        fringe_spacing_ref = wavelength * screen_distance / slit_distance / refractive_index
-        screen_width = fringe_spacing_ref * 8
+        # A fixed physical field of view makes spacing changes directly visible.
+        screen_width = 20e-3
         
         x, original_intensity, phase_diff, info = calculator.double_slit_interference(
             wavelength=wavelength,
@@ -528,10 +1320,9 @@ with col1:
             screen_distance=screen_distance,
             screen_width=screen_width,
             refractive_index=refractive_index,
-            polarization_angle=np.radians(polarization_angle),
+            slit_width=slit_width,
             incident_angle=np.radians(incident_angle),
-            coherence=coherence,
-            slit_width_uniformity=slit_width_uniformity
+            coherence=coherence
         )
         
         if enable_error:
@@ -542,24 +1333,29 @@ with col1:
         else:
             intensity = original_intensity
 
-        st.markdown("#### 📐 实时物理量")
-        st.write(f"**条纹间距**: {info['fringe_spacing']*1000:.4f} mm")
-        st.write(f"**理论条纹间距**: {info['theoretical_fringe_spacing']*1000:.4f} mm")
-        st.write(f"**对比度**: {info['contrast']:.4f}")
-        st.write(f"**有效波长**: {info['effective_wavelength']*1e9:.1f} nm")
-        st.write(f"**相对误差**: {info['relative_error']:.2f}%")
+        metric_cols = st.columns(3)
+        metric_cols[0].metric("条纹间距", f"{info['fringe_spacing']*1000:.4f} mm")
+        metric_cols[1].metric("中央包络宽度", f"{info['central_envelope_width']*1000:.3f} mm")
+        metric_cols[2].metric("条纹对比度", f"{info['contrast']:.3f}")
+        live_effect = (
+            f"当前条纹间距 {info['fringe_spacing']*1e3:.2f} mm；"
+            "增大波长或屏距会使条纹明显变疏，增大缝距会使条纹变密。"
+        )
 
     elif experiment_mode == "单缝衍射":
-        wavelength = st.slider("波长 (nm)", 400, 760, 600, 10) * 1e-9
-        slit_width = st.slider("缝宽 (mm)", 0.02, 0.5, 0.1, 0.01) * 1e-3
-        screen_distance = st.slider("屏距 (m)", 1.0, 5.0, 1.0, 0.1)
-        refractive_index = st.slider("介质折射率", 1.0, 1.5, 1.0, 0.05)
-        incident_angle = st.slider("入射角 (°)", -30, 30, 0, 1)
-        slit_width_uniformity = st.slider("缝宽均匀度", 0.5, 1.0, 1.0, 0.05)
+        controls = st.columns(3)
+        with controls[0]:
+            wavelength = st.slider("波长 (nm)", 400, 760, 600, 10) * 1e-9
+        with controls[1]:
+            slit_width = st.slider("缝宽 (mm)", 0.02, 0.5, 0.1, 0.01) * 1e-3
+        with controls[2]:
+            screen_distance = st.slider("屏距 (m)", 1.0, 5.0, 1.0, 0.1)
+        refractive_index = 1.0
+        incident_angle = 0.0
         
-        first_min_angle_ref = np.arcsin(wavelength / slit_width)
-        central_width_ref = 2 * screen_distance * np.tan(first_min_angle_ref)
-        screen_width = central_width_ref * 3
+        # Keep the same 30 mm screen while parameters change so the central
+        # maximum visibly expands or contracts instead of being auto-fitted.
+        screen_width = 30e-3
         
         x, original_intensity, phase_diff, info = calculator.single_slit_diffraction(
             wavelength=wavelength,
@@ -567,8 +1363,7 @@ with col1:
             screen_distance=screen_distance,
             screen_width=screen_width,
             refractive_index=refractive_index,
-            incident_angle=np.radians(incident_angle),
-            slit_width_uniformity=slit_width_uniformity
+            incident_angle=np.radians(incident_angle)
         )
         
         if enable_error:
@@ -579,23 +1374,31 @@ with col1:
         else:
             intensity = original_intensity
         
-        st.markdown("#### 📐 实时物理量")
-        st.write(f"**第一暗纹角度**: {info['first_min_angle']:.2f}°")
-        st.write(f"**中央明纹宽度**: {info['central_max_width']*1000:.3f} mm")
-        st.write(f"**半角宽度**: {info['half_angle_width']:.2f}°")
-        st.write(f"**相对误差**: {info['relative_error']:.2f}%")
+        metric_cols = st.columns(2)
+        metric_cols[0].metric("第一暗纹角度", f"{info['first_min_angle']:.2f}°")
+        metric_cols[1].metric("中央明纹宽度", f"{info['central_max_width']*1000:.3f} mm")
+        live_effect = (
+            f"中央明纹当前宽约 {info['central_max_width']*1e3:.2f} mm；"
+            "减小缝宽时中央亮斑会迅速展宽，旁瓣位置也会同步外移。"
+        )
 
     elif experiment_mode == "多缝光栅":
-        wavelength = st.slider("波长 (nm)", 400, 760, 500, 10) * 1e-9
-        slit_distance = st.slider("光栅常数 (μm)", 5, 50, 20, 1) * 1e-6
-        num_slits = st.slider("缝数", 5, 50, 10, 1)
-        slit_width = st.slider("缝宽 (μm)", 1, 25, 10, 1) * 1e-6
-        screen_distance = st.slider("屏距 (m)", 1.0, 5.0, 1.0, 0.1)
-        refractive_index = st.slider("介质折射率", 1.0, 1.5, 1.0, 0.05)
-        incident_angle = st.slider("入射角 (°)", -30, 30, 0, 1)
+        controls = st.columns(5)
+        with controls[0]:
+            wavelength = st.slider("波长 (nm)", 400, 760, 500, 10) * 1e-9
+        with controls[1]:
+            slit_distance = st.slider("光栅常数 (μm)", 5, 50, 20, 1) * 1e-6
+        with controls[2]:
+            num_slits = st.slider("缝数", 5, 50, 10, 1)
+        with controls[3]:
+            slit_width = st.slider("缝宽 (μm)", 1, 25, 10, 1) * 1e-6
+        with controls[4]:
+            screen_distance = st.slider("屏距 (m)", 1.0, 5.0, 1.0, 0.1)
+        refractive_index = 1.0
+        incident_angle = 0.0
         
-        k_max = int((slit_distance / wavelength) * (1 - np.sin(np.radians(incident_angle))))
-        screen_width = wavelength * screen_distance / slit_distance * k_max * 2.5 / refractive_index
+        # A fixed 200 mm detector makes order spacing and peak sharpening clear.
+        screen_width = 200e-3
         
         x, original_intensity, phase_diff, info = calculator.multi_slit_diffraction(
             wavelength=wavelength,
@@ -616,18 +1419,26 @@ with col1:
         else:
             intensity = original_intensity
         
-        st.markdown("#### 📐 实时物理量")
-        st.write(f"**光栅常数**: {slit_distance*1e6:.0f} μm")
-        st.write(f"**最大衍射级次**: {info['max_order']}")
-        st.write(f"**分辨本领**: {info['resolving_power']}")
-        st.write(f"**色散率**: {info['dispersion']*1e12:.2e} rad/m")
+        metric_cols = st.columns(4)
+        metric_cols[0].metric("光栅常数", f"{slit_distance*1e6:.0f} μm")
+        metric_cols[1].metric("最大衍射级次", info['max_order'])
+        metric_cols[2].metric("一级分辨本领", info['resolving_power_first_order'])
+        metric_cols[3].metric("线密度", f"{info['line_density']:.1f} 条/mm")
+        live_effect = (
+            f"当前一级分辨本领为 {info['resolving_power_first_order']}；"
+            "增加缝数会让主峰显著变窄，改变光栅常数会移动各级主峰。"
+        )
 
     elif experiment_mode == "迈克耳孙干涉":
-        wavelength = st.slider("波长 (nm)", 400, 760, 550, 10) * 1e-9
-        mirror_displacement = st.slider("镜面移动距离 (μm)", 0.0, 10.0, 2.5, 0.1) * 1e-6
-        num_fringes = st.slider("显示条纹数", 10, 100, 50, 10)
-        refractive_index = st.slider("介质折射率", 1.0, 1.5, 1.0, 0.05)
-        beam_ratio = st.slider("两束光强度比", 0.1, 1.0, 0.5, 0.1)
+        controls = st.columns(3)
+        with controls[0]:
+            wavelength = st.slider("波长 (nm)", 400, 760, 550, 10) * 1e-9
+        with controls[1]:
+            mirror_displacement = st.slider("镜面移动距离 (μm)", 0.0, 10.0, 2.5, 0.1) * 1e-6
+        with controls[2]:
+            beam_ratio = st.slider("两束光强度比", 0.1, 1.0, 0.5, 0.1)
+        num_fringes = 20
+        refractive_index = 1.0
         
         path_diff, original_intensity, phase_diff, info = calculator.michelson_interferometer(
             wavelength=wavelength,
@@ -645,19 +1456,28 @@ with col1:
         else:
             intensity = original_intensity
         
-        st.markdown("#### 📐 实时物理量")
-        st.write(f"**条纹移动数**: {info['fringe_shift']:.2f}")
-        st.write(f"**光程差变化**: {info['optical_path_difference']*1e6:.2f} μm")
-        st.write(f"**条纹可见度**: {info['fringe_visibility']:.4f}")
-        st.write(f"**相对误差**: {info['relative_error']:.2f}%")
+        metric_cols = st.columns(3)
+        metric_cols[0].metric("条纹移动数", f"{info['fringe_shift']:.2f}")
+        metric_cols[1].metric("光程差变化", f"{info['optical_path_difference']*1e6:.2f} μm")
+        metric_cols[2].metric("条纹可见度", f"{info['fringe_visibility']:.3f}")
+        live_effect = (
+            f"反射镜移动 {mirror_displacement*1e6:.1f} μm，条纹已移动 {info['fringe_shift']:.2f} 条；"
+            "镜面每移动半个波长，视场就完成一次明暗循环。"
+        )
 
     elif experiment_mode == "薄膜干涉":
-        wavelength = st.slider("波长 (nm)", 400, 760, 550, 10) * 1e-9
-        film_thickness = st.slider("薄膜厚度 (nm)", 100, 2000, 500, 50) * 1e-9
-        n_film = st.slider("薄膜折射率", 1.0, 2.0, 1.5, 0.05)
-        n_substrate = st.slider("基底折射率", 1.0, 2.0, 1.5, 0.05)
-        incident_angle = st.slider("入射角 (°)", 0, 60, 0, 5)
-        interference_type = st.radio("干涉类型", ["等厚干涉", "等倾干涉"])
+        controls = st.columns(5)
+        with controls[0]:
+            wavelength = st.slider("波长 (nm)", 400, 760, 550, 10) * 1e-9
+        with controls[1]:
+            film_thickness = st.slider("薄膜厚度 (nm)", 100, 2000, 500, 50) * 1e-9
+        with controls[2]:
+            n_film = st.slider("薄膜折射率", 1.0, 2.0, 1.5, 0.05)
+        with controls[3]:
+            n_substrate = st.slider("基底折射率", 1.0, 2.0, 1.5, 0.05)
+        with controls[4]:
+            interference_type = st.radio("干涉类型", ["等厚干涉", "等倾干涉"])
+        incident_angle = 0
         
         x, original_intensity, phase_diff, info = calculator.thin_film_interference(
             wavelength=wavelength,
@@ -676,18 +1496,28 @@ with col1:
         else:
             intensity = original_intensity
         
-        st.markdown("#### 📐 实时物理量")
-        st.write(f"**薄膜厚度**: {film_thickness*1e9:.0f} nm")
-        st.write(f"**薄膜折射率**: {n_film:.3f}")
-        st.write(f"**干涉类型**: {info['interference_type']}")
-        st.write(f"**相位突变**: {'π' if info['phase_shift'] > 0 else '0'}")
+        metric_cols = st.columns(4)
+        metric_cols[0].metric("薄膜厚度", f"{film_thickness*1e9:.0f} nm")
+        metric_cols[1].metric("干涉类型", info['interference_type'])
+        metric_cols[2].metric("相位突变", "π" if info['phase_shift'] > 0 else "0")
+        metric_cols[3].metric("当前反射强度", f"{info['current_reflectance']:.3f}")
+        live_effect = (
+            f"当前反射强度为 {info['current_reflectance']:.3f}；"
+            "膜厚或折射率改变会直接改变光程差，使反射光在明暗之间切换。"
+        )
 
     elif experiment_mode == "偏振干涉":
-        wavelength = st.slider("波长 (nm)", 400, 760, 550, 10) * 1e-9
-        polarizer_angle = st.slider("起偏器角度 (°)", 0, 180, 0, 5)
-        analyzer_angle = st.slider("检偏器角度 (°)", 0, 180, 90, 5)
-        waveplate_angle = st.slider("波片角度 (°)", 0, 180, 45, 5)
-        waveplate_type = st.radio("波片类型", ["1/4波片", "1/2波片"])
+        controls = st.columns(5)
+        with controls[0]:
+            wavelength = st.slider("波长 (nm)", 400, 760, 550, 10) * 1e-9
+        with controls[1]:
+            polarizer_angle = st.slider("起偏器角度 (°)", 0, 180, 0, 5)
+        with controls[2]:
+            analyzer_angle = st.slider("检偏器角度 (°)", 0, 180, 90, 5)
+        with controls[3]:
+            waveplate_angle = st.slider("波片角度 (°)", 0, 180, 45, 5)
+        with controls[4]:
+            waveplate_type = st.radio("波片类型", ["1/4波片", "1/2波片"])
         
         x, original_intensity, phase_diff, info = calculator.polarization_interference(
             wavelength=wavelength,
@@ -705,169 +1535,242 @@ with col1:
         else:
             intensity = original_intensity
         
-        st.markdown("#### 📐 实时物理量")
-        st.write(f"**消光比**: {info['extinction_ratio']:.4f}")
-        st.write(f"**最大光强**: {info['max_intensity']:.4f}")
-        st.write(f"**最小光强**: {info['min_intensity']:.4f}")
-        st.write(f"**相位延迟**: {info['phase_retardation']:.1f}°")
+        metric_cols = st.columns(4)
+        metric_cols[0].metric("输出偏振态", info['polarization_state'])
+        metric_cols[1].metric("当前透射光强", f"{info['current_intensity']:.4f}")
+        metric_cols[2].metric("椭圆率角", f"{info['ellipticity_angle']:.2f}°")
+        metric_cols[3].metric("相位延迟", f"{info['phase_retardation']:.1f}°")
+        live_effect = (
+            f"当前为{info['polarization_state']}，透射光强 {info['current_intensity']:.3f}；"
+            "旋转检偏器可直接观察马吕斯定律的周期性明暗变化。"
+        )
 
 with col2:
-    st.markdown("### 📊 仿真结果")
+    st.markdown("""
+    <div class="section-heading">
+        <span class="section-number">03</span>
+        <div><strong>仪器 · 图像 · 数据联动</strong><small>先观察现象，再用曲线和特征量解释变化</small></div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.info(f"**实时现象：** {live_effect}")
+    st.markdown("""
+    <div class="link-panel">
+        <div class="link-flow">参数控制 → 虚拟仪器状态 → 强度曲线 → 屏上图样 → 特征量</div>
+    </div>
+    """, unsafe_allow_html=True)
 
+    beam_color = wavelength_to_css(wavelength * 1e9)
     if experiment_mode == "双缝干涉":
-        st.markdown("#### 🔬 光路原理图")
-        st.image("微信图片_20260626165435_1415_1.png", use_column_width=True, caption="双缝干涉光路原理图")
-        st.markdown("---")
-    
-    if experiment_mode == "单缝衍射":
-        st.markdown("#### 🔬 光路原理图")
-        st.image("微信图片_20260626170035_1416_1.png", use_column_width=True, caption="单缝衍射光路原理图")
-        st.markdown("---")
-    
-    if experiment_mode == "迈克耳孙干涉":
-        st.markdown("#### 🔬 光路原理图")
-        st.image("ae7563b893900f4e5076e869392055bd.jpg", use_column_width=True, caption="迈克耳孙干涉光路原理图")
-        st.markdown("---")
-    
-    if experiment_mode == "多缝光栅":
-        st.markdown("#### 🔬 光路原理图")
-        st.image("微信图片_20260626204545_1417_1.png", use_column_width=True, caption="多缝光栅衍射光路原理图")
-        st.markdown("---")
-    
-    if experiment_mode == "薄膜干涉":
-        st.markdown("#### 🔬 光路原理图")
-        st.image("微信图片_20260626204819_1418_1.png", use_column_width=True, caption="薄膜干涉光路原理图")
-        st.markdown("---")
-    
-    if experiment_mode == "偏振干涉":
-        st.markdown("#### 🔬 光路原理图")
-        st.image("微信图片_20260626204946_1419_1.png", use_column_width=True, caption="偏振干涉光路原理图")
-        st.markdown("---")
+        device_name = "可调双缝"
+        device_state = f"缝距 {slit_distance*1e3:.2f} mm"
+        screen_state = f"条纹间距 {info['fringe_spacing']*1e3:.3f} mm"
+    elif experiment_mode == "单缝衍射":
+        device_name = "可调单缝"
+        device_state = f"缝宽 {slit_width*1e3:.3f} mm"
+        screen_state = f"中央明纹 {info['central_max_width']*1e3:.2f} mm"
+    elif experiment_mode == "多缝光栅":
+        device_name = "多缝光栅"
+        device_state = f"{num_slits} 缝 · d={slit_distance*1e6:.0f} μm"
+        screen_state = f"一级分辨本领 {info['resolving_power_first_order']}"
+    elif experiment_mode == "迈克耳孙干涉":
+        device_name = "移动反射镜"
+        device_state = f"位移 {mirror_displacement*1e6:.1f} μm"
+        screen_state = f"移动 {info['fringe_shift']:.2f} 条"
+    elif experiment_mode == "薄膜干涉":
+        device_name = "可调薄膜"
+        device_state = f"厚度 {film_thickness*1e9:.0f} nm · n={n_film:.2f}"
+        screen_state = f"{info['interference_type']}"
+    else:
+        device_name = waveplate_type
+        device_state = f"波片 {waveplate_angle}° · 检偏器 {analyzer_angle}°"
+        screen_state = f"{info['polarization_state']} · I={info['current_intensity']:.3f}"
+
+    st.markdown(f"""
+    <div class="instrument-stage">
+        <div class="instrument-node"><small>光源</small><div class="instrument-value">{wavelength*1e9:.0f} nm</div></div>
+        <div>
+            <div class="beam-line" style="color:{beam_color}; background:{beam_color};"></div>
+            <div class="instrument-node" style="margin-top:14px;"><small>{device_name}</small><div class="instrument-value">{device_state}</div></div>
+        </div>
+        <div class="instrument-node"><small>观测屏 / 探测器</small><div class="instrument-value">{screen_state}</div></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    diagram_files = {
+        "双缝干涉": "微信图片_20260626165435_1415_1.png",
+        "单缝衍射": "微信图片_20260626170035_1416_1.png",
+        "迈克耳孙干涉": "ae7563b893900f4e5076e869392055bd.jpg",
+        "多缝光栅": "微信图片_20260626204545_1417_1.png",
+        "薄膜干涉": "微信图片_20260626204819_1418_1.png",
+        "偏振干涉": "微信图片_20260626204946_1419_1.png",
+    }
+    with st.expander("查看实验光路与装置结构", expanded=False):
+        st.image(
+            load_uniform_diagram(diagram_files[experiment_mode]),
+            use_column_width=True,
+            caption=f"{experiment_mode}光路示意",
+        )
 
     if intensity is not None:
-        if experiment_mode in ["双缝干涉", "单缝衍射", "多缝光栅", "偏振干涉"]:
-            if show_3d:
-                fig = plt.figure(figsize=(14, 10))
-                ax = fig.add_subplot(111, projection='3d')
-                
-                x_3d = x * 1000
-                y_3d = np.linspace(-5, 5, 30)
-                X_3d, Y_3d = np.meshgrid(x_3d, y_3d)
-                Z_3d = np.tile(intensity, (30, 1))
-                
-                surf = ax.plot_surface(X_3d, Y_3d, Z_3d, cmap=color_scheme,
-                                       edgecolor='none', alpha=0.9,
-                                       rstride=8, cstride=1, antialiased=False)
-                
-                ax.view_init(elev=30, azim=60)
-                ax.set_xlabel('位置 (mm)', fontsize=12, fontweight='bold', labelpad=8)
-                ax.set_ylabel('Y方向 (mm)', fontsize=12, fontweight='bold', labelpad=8)
-                ax.set_zlabel('相对强度', fontsize=12, fontweight='bold', labelpad=8)
-                ax.set_zlim(0, 1.1)
-                
-                cbar = fig.colorbar(surf, ax=ax, shrink=0.6, aspect=15, pad=0.1)
-                cbar.set_label('相对强度', fontsize=11)
-                plt.tight_layout()
-                st.pyplot(fig)
+        if experiment_mode in ["双缝干涉", "单缝衍射", "多缝光栅"]:
+            rows = 3 if show_phase else 2
+            fig = plt.figure(figsize=(14, 11.2 if show_phase else 9.8), dpi=120, facecolor="#ffffff")
+            grid = fig.add_gridspec(
+                rows,
+                1,
+                height_ratios=[2.3, 1.0, 0.82] if show_phase else [2.3, 1.0],
+                hspace=0.31,
+            )
+            x_mm = x * 1000
+            # 先展示观察屏图像，再展示位置/强度曲线，和实验观察顺序一致。
+            ax_screen = fig.add_subplot(grid[0])
+            # Darken low-intensity regions slightly so fringe movement and
+            # contrast changes remain obvious on classroom projectors.
+            display_intensity = np.power(np.clip(intensity, 0, 1), 1.35)
+            screen_image = np.tile(display_intensity, (320, 1))
+            ax_screen.imshow(screen_image, extent=[x_mm[0], x_mm[-1], 0, 1], aspect='auto', cmap=optical_cmap(wavelength * 1e9), interpolation='bilinear', vmin=0, vmax=1)
+            ax_screen.set_xlabel('屏上位置 (mm)')
+            ax_screen.set_yticks([])
+            ax_screen.set_title('放大观察屏（固定物理视场）', loc='left', fontsize=13, fontweight='bold')
+
+            ax1 = fig.add_subplot(grid[1])
+            ax1.plot(x_mm, intensity, linewidth=2.2, color=beam_color)
+            ax1.fill_between(x_mm, intensity, color=beam_color, alpha=0.18)
+            ax1.set_ylabel('相对光强')
+            ax1.set_title(f'{experiment_mode}：位置—强度曲线', loc='left', fontweight='bold')
+            ax1.grid(True, alpha=0.2)
+            ax1.set_ylim(0, 1.05)
+            if show_theory_marks and experiment_mode == "双缝干涉":
+                spacing_mm = info['fringe_spacing'] * 1000
+                for order in range(-3, 4):
+                    ax1.axvline(order * spacing_mm, color='#0f766e', alpha=0.22, linestyle='--')
+            elif show_theory_marks and experiment_mode == "单缝衍射":
+                for position in info['dark_positions'][:3]:
+                    ax1.axvline(position * 1000, color='#dc2626', alpha=0.35, linestyle='--')
+                    ax1.axvline(-position * 1000, color='#dc2626', alpha=0.35, linestyle='--')
+            elif show_theory_marks and experiment_mode == "多缝光栅":
+                for position in info['peak_positions']:
+                    if x[0] <= position <= x[-1]:
+                        ax1.axvline(position * 1000, color='#0f766e', alpha=0.22, linestyle='--')
+
+            if not show_phase:
+                ax1.set_xlabel('屏上位置 (mm)')
             else:
-                fig = plt.figure(figsize=(12, 9))
-                
-                if show_phase:
-                    ax1 = fig.add_subplot(3, 1, 1)
-                    ax1.fill_between(x * 1000, intensity, alpha=0.4)
-                    ax1.plot(x * 1000, intensity, linewidth=2, color='#1565c0')
-                    ax1.set_xlabel('位置 (mm)', fontsize=11, fontweight='bold')
-                    ax1.set_ylabel('相对强度', fontsize=11, fontweight='bold')
-                    ax1.grid(True, alpha=0.3, linestyle='--')
-                    ax1.set_ylim(0, 1.1)
-                    
-                    ax2 = fig.add_subplot(3, 1, 2)
-                    ax2.plot(x * 1000, phase_diff, linewidth=2, color='#d32f2f')
-                    ax2.set_xlabel('位置 (mm)', fontsize=11, fontweight='bold')
-                    ax2.set_ylabel('相位差 (rad)', fontsize=11, fontweight='bold')
-                    ax2.grid(True, alpha=0.3, linestyle='--')
-                    
-                    ax3 = fig.add_subplot(3, 1, 3)
-                    y_img = np.linspace(0, 1, 150)
-                    Z = np.tile(intensity, (150, 1))
-                    im = ax3.imshow(Z, extent=[x[0]*1000, x[-1]*1000, 0, 1], aspect='auto', cmap=color_scheme, interpolation='bilinear')
-                    ax3.set_xlabel('位置 (mm)', fontsize=11, fontweight='bold')
-                    ax3.set_ylabel('强度分布', fontsize=11, fontweight='bold')
-                    cbar = plt.colorbar(im, ax=ax3, shrink=0.8)
-                    cbar.set_label('强度', fontsize=10)
-                else:
-                    ax1 = fig.add_subplot(2, 1, 1)
-                    ax1.fill_between(x * 1000, intensity, alpha=0.4)
-                    ax1.plot(x * 1000, intensity, linewidth=2, color='#1565c0')
-                    ax1.set_xlabel('位置 (mm)', fontsize=11, fontweight='bold')
-                    ax1.set_ylabel('相对强度', fontsize=11, fontweight='bold')
-                    ax1.grid(True, alpha=0.3, linestyle='--')
-                    ax1.set_ylim(0, 1.1)
-                    
-                    ax2 = fig.add_subplot(2, 1, 2)
-                    y_img = np.linspace(0, 1, 150)
-                    Z = np.tile(intensity, (150, 1))
-                    im = ax2.imshow(Z, extent=[x[0]*1000, x[-1]*1000, 0, 1], aspect='auto', cmap=color_scheme, interpolation='bilinear')
-                    ax2.set_xlabel('位置 (mm)', fontsize=11, fontweight='bold')
-                    ax2.set_ylabel('强度分布', fontsize=11, fontweight='bold')
-                    cbar = plt.colorbar(im, ax=ax2, shrink=0.8)
-                    cbar.set_label('强度', fontsize=10)
-                
-                plt.tight_layout(pad=1.5)
-                st.pyplot(fig)
+                ax1.set_xlabel('屏上位置 (mm)')
+                ax3 = fig.add_subplot(grid[2])
+                ax3.plot(x_mm, np.unwrap(phase_diff), color='#7c3aed', linewidth=1.6)
+                ax3.set_xlabel('屏上位置 (mm)')
+                ax3.set_ylabel('相位差 (rad)')
+                ax3.grid(True, alpha=0.2)
+            st.pyplot(fig, use_container_width=True)
+            plt.close(fig)
+
+        elif experiment_mode == "偏振干涉":
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 7.2), dpi=120, facecolor="#ffffff")
+            analyzer_deg = np.degrees(x)
+            ax1.plot(analyzer_deg, intensity, color=beam_color, linewidth=2.4)
+            ax1.axvline(analyzer_angle, color='#dc2626', linestyle='--', label='当前检偏器角度')
+            ax1.scatter([analyzer_angle], [info['current_intensity']], color='#dc2626', zorder=4)
+            ax1.set_xlabel('检偏器角度 (°)')
+            ax1.set_ylabel('透射光强')
+            ax1.set_title('检偏器扫描曲线', fontweight='bold')
+            ax1.set_ylim(0, 1.05)
+            ax1.grid(True, alpha=0.2)
+            ax1.legend()
+
+            azimuth = np.radians(info['polarization_azimuth'])
+            ellipticity = np.tan(np.radians(info['ellipticity_angle']))
+            t = np.linspace(0, 2 * np.pi, 400)
+            ellipse = np.vstack((np.cos(t), ellipticity * np.sin(t)))
+            rotation = np.array([[np.cos(azimuth), -np.sin(azimuth)], [np.sin(azimuth), np.cos(azimuth)]])
+            ellipse = rotation @ ellipse
+            ax2.plot(ellipse[0], ellipse[1], color=beam_color, linewidth=2.8)
+            ax2.axhline(0, color='#cbd5e1', linewidth=1)
+            ax2.axvline(0, color='#cbd5e1', linewidth=1)
+            ax2.set_aspect('equal')
+            ax2.set_xlim(-1.1, 1.1)
+            ax2.set_ylim(-1.1, 1.1)
+            ax2.set_xlabel('Ex')
+            ax2.set_ylabel('Ey')
+            ax2.set_title(f"偏振椭圆：{info['polarization_state']}", fontweight='bold')
+            plt.tight_layout()
+            st.pyplot(fig, use_container_width=True)
+            plt.close(fig)
         
         elif experiment_mode == "迈克耳孙干涉":
-            fig = plt.figure(figsize=(12, 9))
-            
-            ax1 = fig.add_subplot(2, 1, 1)
+            fig = plt.figure(figsize=(14, 10.0), dpi=120, facecolor="#ffffff")
+            ax1 = fig.add_subplot(2, 2, 1)
             ax1.fill_between(path_diff * 1e6, intensity, alpha=0.4)
-            ax1.plot(path_diff * 1e6, intensity, linewidth=2, color='#1565c0')
+            ax1.plot(path_diff * 1e6, intensity, linewidth=2.4, color=beam_color)
             ax1.set_xlabel('光程差 (μm)', fontsize=11, fontweight='bold')
             ax1.set_ylabel('相对强度', fontsize=11, fontweight='bold')
+            ax1.set_title('条纹移动的定量证据', loc='left', fontweight='bold')
             ax1.grid(True, alpha=0.3, linestyle='--')
             ax1.set_ylim(0, 1.1)
-            
+
+            ax_ring = fig.add_subplot(2, 2, 2)
+            grid_axis = np.linspace(-1, 1, 360)
+            grid_x, grid_y = np.meshgrid(grid_axis, grid_axis)
+            radius_squared = grid_x ** 2 + grid_y ** 2
+            ring_phase = 22 * np.pi * radius_squared + 4 * np.pi * mirror_displacement / wavelength
+            rings = 0.5 * (1 + info['fringe_visibility'] * np.cos(ring_phase))
+            ax_ring.imshow(rings, extent=[-1, 1, -1, 1], cmap=optical_cmap(wavelength * 1e9), origin='lower', vmin=0, vmax=1)
+            ax_ring.set_title('等倾干涉同心圆视场', fontweight='bold')
+            ax_ring.set_xticks([])
+            ax_ring.set_yticks([])
+
             ax2 = fig.add_subplot(2, 1, 2)
             y_img = np.linspace(0, 1, 150)
-            Z = np.tile(intensity, (150, 1))
-            im = ax2.imshow(Z, extent=[path_diff[0]*1e6, path_diff[-1]*1e6, 0, 1], aspect='auto', cmap=color_scheme, interpolation='bilinear')
+            Z = np.tile(np.power(np.clip(intensity, 0, 1), 1.35), (220, 1))
+            ax2.imshow(Z, extent=[path_diff[0]*1e6, path_diff[-1]*1e6, 0, 1], aspect='auto', cmap=optical_cmap(wavelength * 1e9), interpolation='bilinear', vmin=0, vmax=1)
             ax2.set_xlabel('光程差 (μm)', fontsize=11, fontweight='bold')
-            ax2.set_ylabel('强度分布', fontsize=11, fontweight='bold')
-            cbar = plt.colorbar(im, ax=ax2, shrink=0.8)
-            cbar.set_label('强度', fontsize=10)
+            ax2.set_yticks([])
+            ax2.set_title('探测器接收的单色条纹', loc='left', fontsize=11)
             
             plt.tight_layout(pad=1.5)
-            st.pyplot(fig)
+            st.pyplot(fig, use_container_width=True)
+            plt.close(fig)
         
         elif experiment_mode == "薄膜干涉":
-            fig = plt.figure(figsize=(12, 9))
+            fig = plt.figure(figsize=(14, 10.0), dpi=120, facecolor="#ffffff")
             
             ax1 = fig.add_subplot(2, 1, 1)
-            ax1.plot(x * 1e9 if info['interference_type'] == '等厚干涉' else np.degrees(x), intensity, linewidth=2, color='#1565c0')
+            plot_x = x * 1e9 if info['interference_type'] == '等厚干涉' else np.degrees(x)
+            ax1.plot(plot_x, intensity, linewidth=2.4, color=beam_color)
             ax1.set_xlabel('厚度 (nm)' if info['interference_type'] == '等厚干涉' else '入射角 (°)', fontsize=11, fontweight='bold')
             ax1.set_ylabel('相对强度', fontsize=11, fontweight='bold')
+            ax1.set_title('薄膜反射强度的定量变化', loc='left', fontweight='bold')
+            if info['interference_type'] == '等厚干涉':
+                ax1.axvline(film_thickness * 1e9, color='#dc2626', linestyle='--', label='当前膜厚')
+                ax1.scatter([film_thickness * 1e9], [info['current_reflectance']], color='#dc2626', zorder=4)
+                ax1.legend()
             ax1.grid(True, alpha=0.3, linestyle='--')
             ax1.set_ylim(0, 1.1)
             
             ax2 = fig.add_subplot(2, 1, 2)
             y_img = np.linspace(0, 1, 150)
-            Z = np.tile(intensity, (150, 1))
-            im = ax2.imshow(Z, extent=[x[0]*1e9 if info['interference_type'] == '等厚干涉' else 0, 
+            Z = np.tile(np.power(np.clip(intensity, 0, 1), 1.35), (220, 1))
+            ax2.imshow(Z, extent=[x[0]*1e9 if info['interference_type'] == '等厚干涉' else 0,
                                        x[-1]*1e9 if info['interference_type'] == '等厚干涉' else 60, 0, 1], 
-                           aspect='auto', cmap=color_scheme, interpolation='bilinear')
+                           aspect='auto', cmap=optical_cmap(wavelength * 1e9), interpolation='bilinear', vmin=0, vmax=1)
             ax2.set_xlabel('厚度 (nm)' if info['interference_type'] == '等厚干涉' else '入射角 (°)', fontsize=11, fontweight='bold')
-            ax2.set_ylabel('强度分布', fontsize=11, fontweight='bold')
-            cbar = plt.colorbar(im, ax=ax2, shrink=0.8)
-            cbar.set_label('强度', fontsize=10)
+            ax2.set_yticks([])
+            ax2.set_title('单色反射光的明暗分布', loc='left', fontsize=11)
             
             plt.tight_layout(pad=1.5)
-            st.pyplot(fig)
+            st.pyplot(fig, use_container_width=True)
+            plt.close(fig)
 
 st.markdown("---")
 
-st.markdown("### 📋 数据分析")
+st.markdown(f"""
+<div class="section-heading">
+    <span class="section-number">04</span>
+    <div><strong>数据证据与拓展探究</strong><small>本次探究：{overview['task']}</small></div>
+</div>
+""", unsafe_allow_html=True)
 
-if original_intensity is not None and intensity is not None:
+if enable_error and original_intensity is not None and intensity is not None:
     error_info = calculator.calculate_error(intensity, original_intensity)
     
     col3, col4, col5 = st.columns(3)
@@ -877,15 +1780,26 @@ if original_intensity is not None and intensity is not None:
         st.metric("最大误差", f"{error_info['max_error']:.4f}")
     with col5:
         st.metric("相对误差", f"{error_info['error_percentage']:.2f}%")
+else:
+    evidence_cols = st.columns(3)
+    evidence_cols[0].metric("模型状态", "理想理论模型")
+    evidence_cols[1].metric("采样点数", f"{len(intensity):,}")
+    evidence_cols[2].metric("当前实验", experiment_mode)
 
 st.markdown("#### 📥 数据导出")
 if st.button("导出数据为Excel"):
-    if experiment_mode in ["双缝干涉", "单缝衍射", "多缝光栅", "偏振干涉"]:
+    if experiment_mode in ["双缝干涉", "单缝衍射", "多缝光栅"]:
         df = pd.DataFrame({
             '位置_mm': x * 1000,
             '相对强度': intensity,
             '相位差_rad': phase_diff if phase_diff is not None else np.nan,
             '光程差_m': info.get('path_difference', np.nan)[:len(intensity)] if isinstance(info.get('path_difference'), np.ndarray) else np.nan
+        })
+    elif experiment_mode == "偏振干涉":
+        df = pd.DataFrame({
+            '检偏器角度_deg': np.degrees(x),
+            '透射光强': intensity,
+            '波片相位延迟_rad': phase_diff
         })
     elif experiment_mode == "迈克耳孙干涉":
         df = pd.DataFrame({
@@ -927,7 +1841,7 @@ if noise_info is not None:
         st.write("3. 降低环境光干扰：在暗室中进行实验")
         st.write("4. 使用低噪声探测器：提高信号质量")
 
-with st.expander("📖 物理原理"):
+with st.expander("📖 完整物理推导（需要时展开）"):
     if experiment_mode == "双缝干涉":
         st.markdown("""
         **双缝干涉原理**
@@ -936,7 +1850,7 @@ with st.expander("📖 物理原理"):
         
         **核心公式：**
         """)
-        st.markdown('<div class="formula-box">光程差：Δ = d·sinθ<br>相位差：δ = 2π·Δ/λ = 2π·d·sinθ/λ<br>光强分布：I = I₀·cos²(π·d·x/(λ·D))<br>条纹间距：Δx = λ·D/d</div>', unsafe_allow_html=True)
+        st.markdown('<div class="formula-box">光程差：Δ = d·sinθ<br>相位差：δ = 2πΔ/λ<br>部分相干强度：I = I₀[1 + γcosδ]/2<br>有限缝宽包络：I<sub>env</sub> = sinc²(πa·sinθ/λ)<br>条纹间距：Δx ≈ λD/d</div>', unsafe_allow_html=True)
         st.markdown("""
         **参数说明：**
         - λ：光波长
@@ -961,7 +1875,7 @@ with st.expander("📖 物理原理"):
         
         **核心公式：**
         """)
-        st.markdown('<div class="formula-box">半波带数：N = a·sinθ/(λ/2)<br>光强分布：I = I₀·(sinβ/β)²，其中 β = π·a·sinθ/λ<br>暗纹条件：a·sinθ = kλ (k=±1, ±2, ±3...)</div>', unsafe_allow_html=True)
+        st.markdown('<div class="formula-box">β = πa·sinθ/λ<br>光强分布：I = I₀(sinβ/β)²<br>暗纹条件：a·sinθ = kλ (k=±1, ±2, ...)<br>小角度下中央明纹宽度：w ≈ 2λD/a</div>', unsafe_allow_html=True)
         st.markdown("""
         **参数说明：**
         - a：缝宽
@@ -980,7 +1894,7 @@ with st.expander("📖 物理原理"):
         
         **核心公式：**
         """)
-        st.markdown('<div class="formula-box">光栅方程：d·sinθ = kλ (k=0, ±1, ±2...)<br>主极大强度：I = I₀·(sinβ/β)²·(sin(Nα)/sinα)²<br>缺级条件：d/a = k/k\'（k为缺级）</div>', unsafe_allow_html=True)
+        st.markdown('<div class="formula-box">α = πd·sinθ/λ，β = πa·sinθ/λ<br>归一化强度：I/I₀ = sinc²(β/π)[sin(Nα)/(Nsinα)]²<br>主极大：d·sinθ = kλ<br>第 k 级分辨本领：R = kN</div>', unsafe_allow_html=True)
         st.markdown("""
         **参数说明：**
         - d：光栅常数（相邻缝间距）
@@ -1018,7 +1932,7 @@ with st.expander("📖 物理原理"):
         
         **核心公式：**
         """)
-        st.markdown('<div class="formula-box">光程差：Δ = 2n·d·cosθ<br>相位突变：当光从光疏介质入射到光密介质时，反射光有π相位突变</div>', unsafe_allow_html=True)
+        st.markdown('<div class="formula-box">膜内折射角满足：n₀sinθ₀ = nsinθ<br>几何光程差：Δ = 2nd·cosθ<br>总相位差：δ = 2πΔ/λ + Δφ<sub>r</sub><br>Δφ<sub>r</sub>由两个反射界面的半波损失之差决定</div>', unsafe_allow_html=True)
         st.markdown("""
         **等厚干涉：** 薄膜厚度不均匀，同一级条纹对应相同厚度的位置
         **等倾干涉：** 薄膜厚度均匀，同一级条纹对应相同入射角的光线
@@ -1036,7 +1950,7 @@ with st.expander("📖 物理原理"):
         
         **核心公式：**
         """)
-        st.markdown('<div class="formula-box">波片相位差：δ = 2π·(nₒ-nₑ)·d/λ<br>1/4波片：δ = π/2<br>1/2波片：δ = π</div>', unsafe_allow_html=True)
+        st.markdown('<div class="formula-box">波片相位延迟：δ = 2π(nₑ-nₒ)d/λ<br>琼斯变换：E<sub>out</sub> = R(θ)diag(1,e<sup>iδ</sup>)R(-θ)E<sub>in</sub><br>检偏器透射：I = |a<sup>T</sup>E<sub>out</sub>|²</div>', unsafe_allow_html=True)
         st.markdown("""
         **物理现象：**
         线偏振光通过1/4波片可变为椭圆偏振光或圆偏振光；
@@ -1047,34 +1961,35 @@ with st.expander("📖 物理原理"):
         """)
 
 if mode_type == "教学模式":
-    with st.expander("📚 教学指导"):
-        st.markdown("""
-        **教学目标：**
-        - 理解波动光学的核心概念
-        - 掌握干涉和衍射的基本规律
-        - 学会分析实验参数对现象的影响
-        
-        **学习步骤：**
-        
-        **第一步：基础现象观察**
-        1. 使用默认参数观察干涉/衍射条纹
-        2. 注意条纹的形状、间距和强度分布
-        
-        **第二步：参数影响分析**
-        1. 调整波长，观察条纹颜色和间距变化
-        2. 调整缝距/缝宽，观察条纹疏密变化
-        3. 调整屏距，观察条纹整体大小变化
-        
-        **第三步：拓展探究**
-        1. 调整偏振角，观察对比度变化
-        2. 改变介质折射率，观察有效波长变化
-        3. 启用误差模拟，理解实验误差来源
-        
-        **思考问题：**
-        1. 为什么增大缝距会使条纹变密？
-        2. 为什么中央明纹最亮？
-        3. 偏振态如何影响干涉现象？
-        """)
+    with st.expander("📚 分层探究与实验拓展", expanded=user_role == "教师教学端"):
+        guide_col1, guide_col2, guide_col3 = st.columns(3)
+        with guide_col1:
+            st.markdown(f"**基础验证**\n\n观察默认图样，指出最明显的结构特征，并用 `{overview['formula']}` 解释。")
+        with guide_col2:
+            st.markdown(f"**变量探究**\n\n{overview['task']}")
+        with guide_col3:
+            st.markdown("**创新设计**\n\n加入误差或非理想因素，提出一种改进测量精度、扩大测量范围或迁移到真实应用的方案。")
+
+        st.markdown("#### 探究记录（用证据代替长篇报告）")
+        record1, record2, record3 = st.columns(3)
+        with record1:
+            prediction_record = st.text_input("我的预测", placeholder="变量改变后，图样将……")
+        with record2:
+            evidence_record = st.text_input("关键证据", placeholder="记录一组数值或图像特征")
+        with record3:
+            conclusion_record = st.text_input("一句话结论", placeholder="数据表明……")
+
+        if st.button("保存本次探究记录", key="save_inquiry_record"):
+            st.session_state.setdefault("inquiry_records", []).append({
+                "实验": experiment_mode,
+                "预测": prediction_record,
+                "证据": evidence_record,
+                "结论": conclusion_record,
+            })
+            st.success("已保存为简洁实验记录。")
+
+        if st.session_state.get("inquiry_records"):
+            st.dataframe(pd.DataFrame(st.session_state.inquiry_records), use_container_width=True)
 
 if mode_type == "练习模式":
     st.markdown("## ❓ 练习题目")
@@ -1216,17 +2131,9 @@ if mode_type == "练习模式":
         st.success("答案已保存！请对照参考答案检查。")
 
 st.markdown("---")
-st.markdown("### ℹ️ 使用说明")
+st.markdown("### ℹ️ 快速使用")
 st.markdown("""
-**使用指南：**
-1. **选择实验**：从侧边栏选择光学实验类型
-2. **调整参数**：使用滑块调整实验参数，观察实时变化
-3. **误差模拟**：勾选"启用误差模拟"可添加系统误差、随机误差、环境光和探测器噪声
-4. **数据导出**：点击按钮导出实验数据为Excel格式
-5. **学习原理**：展开"物理原理"查看详细的理论推导
-6. **教学模式**：在教学模式中获得分步指导
-7. **练习模式**：在练习模式中完成物理习题
-8. **波长计算器**：使用"反推波长"功能根据条纹间距计算波长
+按“原理与公式 → 参数调节 → 联动观察 → 数据证据”的顺序完成实验。需要深入推导、误差分析、数据导出或智能问答时，再展开对应工具。
 """)
 
 with st.expander("🔢 波长计算器"):
@@ -1285,6 +2192,8 @@ with st.expander("📐 物理公式速查"):
 
 with st.expander("🤖 智能助手", expanded=False):
     st.markdown("## 🤖 智能助手")
+    if hasattr(agent, "refresh_environment_config"):
+        agent.refresh_environment_config()
     
     # API连接状态显示和测试
     st.markdown("**🔌 API连接状态：**")
@@ -1293,6 +2202,7 @@ with st.expander("🤖 智能助手", expanded=False):
         if hasattr(agent, 'api_status'):
             status_colors = {
                 "connected": "🟢",
+                "ready": "🟢",
                 "disconnected": "🔴",
                 "timeout": "🟡",
                 "error": "🔴",
@@ -1300,16 +2210,19 @@ with st.expander("🤖 智能助手", expanded=False):
             }
             status_texts = {
                 "connected": "已连接",
+                "ready": "系统 API 已配置",
                 "disconnected": "未连接",
                 "timeout": "连接超时",
                 "error": "连接错误",
                 "unknown": "未知状态"
             }
             st.markdown(f"""
-            <div style="padding: 8px 12px; border-radius: 8px; background-color: {'#e8f5e9' if agent.api_status == 'connected' else '#ffebee'};">
-                {status_colors.get(agent.api_status, '⚪')} **{status_texts.get(agent.api_status, '未知')}**
+            <div style="padding: 12px 14px; border-radius: 8px; color:#0f172a; background-color: {'#dcfce7' if agent.api_status in ['connected', 'ready'] else '#fee2e2'};">
+                {status_colors.get(agent.api_status, '⚪')} <strong>{status_texts.get(agent.api_status, '未知')}</strong>
             </div>
             """, unsafe_allow_html=True)
+            if hasattr(agent, "api_source"):
+                st.caption(f"配置来源：{agent.api_source}｜模型：{getattr(agent, 'model_name', '')}")
             
             if agent.api_error_message:
                 st.warning(f"⚠️ {agent.api_error_message}")
@@ -1401,70 +2314,19 @@ with st.expander("🤖 智能助手", expanded=False):
         
         st.markdown("---")
     
-    # API配置
-    st.markdown("**⚙️ API配置：**")
-    
-    # API类型选择
-    col_api_type, col_api_key = st.columns([1, 2])
-    with col_api_type:
-        api_type = st.radio(
-            "选择API类型",
-            ["阿里云DashScope", "本地Ollama"],
-            horizontal=True,
-            key="api_type",
-            help="DashScope：使用阿里云千问API（需要API Key）| Ollama：使用本地Ollama服务"
-        )
-    
-    if api_type == "阿里云DashScope":
-        with col_api_key:
-            dashscope_api_key = st.text_input(
-                "阿里云API Key",
-                value="",
-                key="dashscope_api_key",
-                type="password",
-                help="请输入您的阿里云DashScope API Key"
-            )
-        
-        if hasattr(agent, 'set_api_type') and hasattr(agent, 'set_api_key'):
-            agent.set_api_type("dashscope")
-            agent.set_api_key(dashscope_api_key)
-            
-            st.info("💡 使用阿里云DashScope API，请确保您的API Key已正确输入")
-            st.markdown("""
-            **获取API Key步骤：**
-            1. 访问 [阿里云DashScope控制台](https://dashscope.console.aliyun.com/)
-            2. 登录您的阿里云账号
-            3. 点击"API Key管理"
-            4. 创建或复制您的API Key
-            """)
+    st.markdown("**⚙️ 系统 API 配置：**")
+    if getattr(agent, "api_type", "dashscope") == "dashscope":
+        if getattr(agent, "_environment_api_key", ""):
+            env_name = getattr(agent, "api_key_env_name", "DASHSCOPE_API_KEY")
+            st.success(f"已自动加载系统环境变量 {env_name}，无需手动填写 API Key。")
+        else:
+            st.error("未检测到系统环境变量 DASHSCOPE_API_KEY，请在系统环境中配置后重新启动程序。")
     else:
-        col_ollama_url, col_ollama_model = st.columns([3, 1])
-        with col_ollama_url:
-            ollama_url = st.text_input(
-                "Ollama API地址",
-                value="http://localhost:8000/v1/chat/completions",
-                key="ollama_url",
-                help="本地Ollama服务地址"
-            )
-        with col_ollama_model:
-            ollama_model = st.text_input(
-                "模型名称",
-                value="Qwen",
-                key="ollama_model",
-                help="Ollama中已下载的模型名称"
-            )
-        
-        if hasattr(agent, 'set_api_type') and hasattr(agent, 'set_api_config'):
-            agent.set_api_type("ollama")
-            agent.set_api_config(ollama_url, ollama_model)
-            
-            st.info("💡 使用本地Ollama服务，请确保已启动Ollama：")
-            st.markdown("""
-            **启动Ollama：**
-            1. 安装Ollama：[下载地址](https://ollama.com/download)
-            2. 下载模型：`ollama pull qwen`
-            3. 启动服务：`ollama serve`（或通过Ollama应用启动）
-            """)
+        st.success("已从系统环境变量加载本地模型配置。")
+    st.caption(
+        f"服务类型：{getattr(agent, 'api_type', 'dashscope')}｜"
+        f"模型：{getattr(agent, 'model_name', '')}｜密钥不会在页面中显示或保存"
+    )
     
     st.markdown("---")
     
@@ -1482,14 +2344,33 @@ with st.expander("🤖 智能助手", expanded=False):
             st.info("👋 还没有对话记录，开始提问吧！")
         else:
             for msg in history:
-                if msg["role"] == "user":
-                    st.markdown(f'<div class="user-message">{msg["content"]}</div>', unsafe_allow_html=True)
-                else:
-                    st.markdown(f'<div class="assistant-message">{msg["content"]}</div>', unsafe_allow_html=True)
+                role = "user" if msg.get("role") == "user" else "assistant"
+                content = str(msg.get("content", ""))
+                # Streamlit Markdown renders $...$ and $$...$$ through KaTeX.
+                # Normalize the other common LaTeX delimiters returned by models.
+                content = content.replace(r"\[", "$$").replace(r"\]", "$$")
+                content = content.replace(r"\(", "$").replace(r"\)", "$")
+                with st.chat_message(role):
+                    st.markdown(content)
     
     st.markdown("---")
     
     # 用户输入
+    def submit_agent_question(question=None):
+        prompt = question if question is not None else st.session_state.get("agent_input", "")
+        prompt = (prompt or "").strip()
+        if not prompt:
+            return
+        agent.generate_response(prompt)
+        if question is None:
+            st.session_state["agent_input"] = ""
+
+    def clear_agent_conversation():
+        if hasattr(agent, 'clear_history'):
+            agent.clear_history()
+        elif hasattr(agent, 'conversation_history'):
+            agent.conversation_history = []
+
     user_input = st.text_area(
         "💭 请输入您的问题：",
         placeholder="例如：双缝干涉的原理是什么？如何计算条纹间距？",
@@ -1499,19 +2380,21 @@ with st.expander("🤖 智能助手", expanded=False):
     
     col_agent1, col_agent2 = st.columns([4, 1])
     with col_agent1:
-        if st.button("🚀 发送", type="primary", key="send_msg"):
-            if user_input.strip():
-                with st.spinner("🤔 正在思考..."):
-                    response = agent.generate_response(user_input)
-                st.experimental_rerun()
+        st.button(
+            "🚀 发送",
+            type="primary",
+            key="send_msg",
+            on_click=submit_agent_question,
+            use_container_width=True,
+        )
     
     with col_agent2:
-        if st.button("🗑️ 清空", key="clear_chat"):
-            if hasattr(agent, 'clear_history'):
-                agent.clear_history()
-            elif hasattr(agent, 'conversation_history'):
-                agent.conversation_history = []
-            st.experimental_rerun()
+        st.button(
+            "🗑️ 清空",
+            key="clear_chat",
+            on_click=clear_agent_conversation,
+            use_container_width=True,
+        )
     
     # 快捷提问按钮
     st.markdown("**⚡ 快捷提问：**")
@@ -1548,10 +2431,14 @@ with st.expander("🤖 智能助手", expanded=False):
     cols = st.columns(min(5, len(quick_questions)))
     for i, q in enumerate(quick_questions):
         with cols[i]:
-            if st.button(q, key=f"quick_{i}", help=f"快速提问：{q}"):
-                with st.spinner("🤔 正在回答..."):
-                    response = agent.generate_response(q)
-                st.experimental_rerun()
+            st.button(
+                q,
+                key=f"quick_{i}",
+                help=f"快速提问：{q}",
+                on_click=submit_agent_question,
+                args=(q,),
+                use_container_width=True,
+            )
     
     # 高级功能提示
     st.markdown("---")

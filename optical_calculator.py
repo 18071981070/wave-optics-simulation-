@@ -1,12 +1,11 @@
 import numpy as np
-from typing import Tuple, Optional, Dict, Any
-from scipy import optimize
+from typing import Tuple, Optional
 
 class OpticalCalculator:
     """
     波动光学精准计算模块
     支持多种光学实验的物理建模与精准计算
-    遵循物理规律，误差控制在1%以内
+    使用标准标量衍射与琼斯矩阵模型，输出可验证的定量结果
     """
     
     @staticmethod
@@ -17,11 +16,9 @@ class OpticalCalculator:
         screen_width: float,
         num_points: int = 1200,
         refractive_index: float = 1.0,
-        polarization_angle: float = 0.0,
         incident_angle: float = 0.0,
         slit_width: Optional[float] = None,
-        coherence: float = 1.0,
-        slit_width_uniformity: float = 1.0
+        coherence: float = 1.0
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
         """
         双缝干涉计算模型（精准升级版本）
@@ -33,11 +30,9 @@ class OpticalCalculator:
             screen_width: 屏幕宽度 (m)
             num_points: 计算点数
             refractive_index: 介质折射率
-            polarization_angle: 偏振角 (弧度)
             incident_angle: 入射角 (弧度)
             slit_width: 缝宽 (m)，为None时不考虑单缝衍射包络
             coherence: 光源相干性 (0-1)
-            slit_width_uniformity: 缝宽不均匀度 (0-1，1为均匀)
         
         返回:
             x: 屏幕位置坐标
@@ -48,54 +43,39 @@ class OpticalCalculator:
         x = np.linspace(-screen_width/2, screen_width/2, num_points)
         
         effective_wavelength = wavelength / refractive_index
-        
         theta = np.arctan(x / screen_distance)
-        
         path_diff = slit_distance * (np.sin(theta) - np.sin(incident_angle))
         phase_diff = 2 * np.pi * path_diff / effective_wavelength
-        
-        interference_term = (np.cos(phase_diff / 2)) ** 2
-        
+
+        # 部分相干双光束干涉：相干度改变可见度，而不是整体光强。
+        interference_term = 0.5 * (1 + coherence * np.cos(phase_diff))
+
         if slit_width is not None:
-            beta = np.pi * slit_width * np.sin(theta) / effective_wavelength
-            beta = np.where(beta == 0, 1e-10, beta)
-            diffraction_term = (np.sin(beta) / beta) ** 2
-            
-            if slit_width_uniformity < 1.0:
-                width_variation = 1 + (np.random.rand(num_points) - 0.5) * (1 - slit_width_uniformity) * 0.2
-                beta_var = beta * width_variation
-                diffraction_term *= (np.sin(beta_var) / beta_var) ** 2
-            
-            intensity = coherence * diffraction_term * interference_term
+            beta = np.pi * slit_width * (np.sin(theta) - np.sin(incident_angle)) / effective_wavelength
+            diffraction_term = np.sinc(beta / np.pi) ** 2
+            intensity = diffraction_term * interference_term
         else:
-            intensity = coherence * interference_term
-        
-        polarization_factor = (np.cos(polarization_angle)) ** 2
-        intensity = intensity * polarization_factor
-        
+            intensity = interference_term
+
         intensity = np.clip(intensity, 0, 1)
-        
         fringe_spacing = effective_wavelength * screen_distance / slit_distance
-        
-        theoretical_fringe_spacing = wavelength * screen_distance / (slit_distance * refractive_index)
-        
+
         info = {
             'fringe_spacing': fringe_spacing,
-            'theoretical_fringe_spacing': theoretical_fringe_spacing,
+            'theoretical_fringe_spacing': fringe_spacing,
             'wavelength': wavelength,
             'slit_distance': slit_distance,
             'screen_distance': screen_distance,
             'refractive_index': refractive_index,
-            'polarization_angle': np.degrees(polarization_angle),
             'incident_angle': np.degrees(incident_angle),
             'coherence': coherence,
             'central_max_intensity': np.max(intensity),
             'min_intensity': np.min(intensity),
-            'contrast': (np.max(intensity) - np.min(intensity)) / (np.max(intensity) + np.min(intensity) + 1e-10),
+            'contrast': coherence,
             'effective_wavelength': effective_wavelength,
             'path_difference': path_diff,
             'phase_difference': phase_diff,
-            'relative_error': np.abs(fringe_spacing - theoretical_fringe_spacing) / theoretical_fringe_spacing * 100
+            'central_envelope_width': None if slit_width is None else 2 * effective_wavelength * screen_distance / slit_width
         }
         
         return x, intensity, phase_diff, info
@@ -108,8 +88,7 @@ class OpticalCalculator:
         screen_width: float,
         num_points: int = 1200,
         refractive_index: float = 1.0,
-        incident_angle: float = 0.0,
-        slit_width_uniformity: float = 1.0
+        incident_angle: float = 0.0
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
         """
         单缝衍射计算模型（精准升级版本）
@@ -122,7 +101,6 @@ class OpticalCalculator:
             num_points: 计算点数
             refractive_index: 介质折射率
             incident_angle: 入射角 (弧度)
-            slit_width_uniformity: 缝宽不均匀度 (0-1)
         
         返回:
             x: 屏幕位置坐标
@@ -136,23 +114,19 @@ class OpticalCalculator:
         theta = np.arctan(x / screen_distance)
         
         beta = np.pi * slit_width * (np.sin(theta) - np.sin(incident_angle)) / effective_wavelength
-        beta = np.where(beta == 0, 1e-10, beta)
-        
-        if slit_width_uniformity < 1.0:
-            width_variation = 1 + (np.random.rand(num_points) - 0.5) * (1 - slit_width_uniformity) * 0.3
-            beta_var = beta * width_variation
-            intensity = (np.sin(beta) / beta) ** 2 * (np.sin(beta_var) / beta_var) ** 2
-        else:
-            intensity = (np.sin(beta) / beta) ** 2
-        
-        first_min_angle = np.arcsin(wavelength / slit_width + np.sin(incident_angle))
-        central_max_width = 2 * screen_distance * np.tan(first_min_angle)
+        intensity = np.sinc(beta / np.pi) ** 2
+
+        sin_first_min = np.clip(effective_wavelength / slit_width + np.sin(incident_angle), -1, 1)
+        first_min_angle = np.arcsin(sin_first_min)
+        left_min_angle = np.arcsin(np.clip(-effective_wavelength / slit_width + np.sin(incident_angle), -1, 1))
+        central_max_width = screen_distance * (np.tan(first_min_angle) - np.tan(left_min_angle))
         
         dark_positions = []
         dark_angles = []
         for k in range(1, 6):
-            angle_k = np.arcsin(k * wavelength / slit_width + np.sin(incident_angle))
-            if np.abs(angle_k) < np.pi/2:
+            sin_angle_k = k * effective_wavelength / slit_width + np.sin(incident_angle)
+            if np.abs(sin_angle_k) <= 1:
+                angle_k = np.arcsin(sin_angle_k)
                 dark_positions.append(screen_distance * np.tan(angle_k))
                 dark_angles.append(np.degrees(angle_k))
         
@@ -161,14 +135,12 @@ class OpticalCalculator:
         info = {
             'first_min_angle': np.degrees(first_min_angle),
             'central_max_width': central_max_width,
-            'half_angle_width': np.degrees(np.arcsin(wavelength / (2 * slit_width))),
+            'half_angle_width': np.degrees(first_min_angle),
             'dark_positions': dark_positions,
             'dark_angles': dark_angles,
             'effective_wavelength': effective_wavelength,
             'incident_angle': np.degrees(incident_angle),
-            'theoretical_central_width': 2 * screen_distance * np.tan(np.arcsin(wavelength / slit_width)),
-            'relative_error': np.abs(central_max_width - 2 * screen_distance * np.tan(np.arcsin(wavelength / slit_width))) / 
-                           (2 * screen_distance * np.tan(np.arcsin(wavelength / slit_width)) + 1e-10) * 100,
+            'theoretical_central_width': central_max_width,
             'path_difference': slit_width * (np.sin(theta) - np.sin(incident_angle)),
             'phase_difference': phase_diff
         }
@@ -215,23 +187,27 @@ class OpticalCalculator:
         effective_wavelength = wavelength / refractive_index
         theta = np.arctan(x / screen_distance)
         
-        beta = np.pi * slit_width * np.sin(theta) / effective_wavelength
-        beta = np.where(beta == 0, 1e-10, beta)
-        diffraction_factor = (np.sin(beta) / beta) ** 2
-        
+        beta = np.pi * slit_width * (np.sin(theta) - np.sin(incident_angle)) / effective_wavelength
+        diffraction_factor = np.sinc(beta / np.pi) ** 2
+
         alpha = np.pi * slit_distance * (np.sin(theta) - np.sin(incident_angle)) / effective_wavelength
-        alpha = np.where(alpha == 0, 1e-10, alpha)
-        interference_factor = (np.sin(num_slits * alpha) / np.sin(alpha)) ** 2 / (num_slits ** 2)
-        
+        denominator = np.sin(alpha)
+        interference_factor = np.where(
+            np.abs(denominator) < 1e-12,
+            1.0,
+            (np.sin(num_slits * alpha) / (num_slits * denominator)) ** 2
+        )
+
         intensity = diffraction_factor * interference_factor
-        
-        k_max = int((slit_distance / wavelength) * (1 - np.sin(incident_angle)))
+
+        k_max = int(np.floor(slit_distance / effective_wavelength))
         
         peak_positions = []
         peak_angles = []
         for k in range(-k_max, k_max + 1):
-            angle_k = np.arcsin(k * wavelength / slit_distance + np.sin(incident_angle))
-            if np.abs(angle_k) < np.pi/2:
+            sin_angle_k = k * effective_wavelength / slit_distance + np.sin(incident_angle)
+            if np.abs(sin_angle_k) <= 1:
+                angle_k = np.arcsin(sin_angle_k)
                 peak_positions.append(screen_distance * np.tan(angle_k))
                 peak_angles.append(np.degrees(angle_k))
         
@@ -240,13 +216,14 @@ class OpticalCalculator:
         info = {
             'slit_distance': slit_distance,
             'num_slits': num_slits,
-            'grating_constant': 1 / slit_distance,
-            'dispersion': num_slits / (slit_distance * np.cos(np.arcsin(wavelength / slit_distance))),
+            'line_density': 1e-3 / slit_distance,
+            'angular_dispersion_first_order': 1 / (slit_distance * np.sqrt(1 - (effective_wavelength / slit_distance) ** 2)),
             'max_order': k_max,
             'peak_positions': peak_positions,
             'peak_angles': peak_angles,
             'effective_wavelength': effective_wavelength,
-            'resolving_power': num_slits * k_max,
+            'resolving_power_first_order': num_slits,
+            'resolving_power_max_order': num_slits * k_max,
             'path_difference': slit_distance * (np.sin(theta) - np.sin(incident_angle)),
             'phase_difference': phase_diff
         }
@@ -307,8 +284,7 @@ class OpticalCalculator:
             'beam_ratio': beam_ratio,
             'fringe_visibility': visibility,
             'coherence_length': coherence_length,
-            'theoretical_fringe_shift': 2 * mirror_displacement / wavelength * refractive_index,
-            'relative_error': np.abs(fringe_shift - 2 * mirror_displacement / wavelength) / (2 * mirror_displacement / wavelength + 1e-10) * 100,
+            'theoretical_fringe_shift': fringe_shift,
             'phase_difference': phase_diff
         }
         
@@ -344,6 +320,11 @@ class OpticalCalculator:
             phase_diff: 相位差分布
             info: 详细物理信息
         """
+        # 两次反射的半波损失之差：仅当两个界面的反射相位跃迁不同才为 pi。
+        first_reflection_shift = np.pi if n_film > n_air else 0.0
+        second_reflection_shift = np.pi if n_substrate > n_film else 0.0
+        phase_shift = (second_reflection_shift - first_reflection_shift) % (2 * np.pi)
+
         if interference_type == 'equal_thickness':
             x = np.linspace(0, film_thickness * 2, num_points)
             thickness_variation = x
@@ -351,12 +332,6 @@ class OpticalCalculator:
             cos_theta_t = np.sqrt(1 - (n_air / n_film * np.sin(incident_angle)) ** 2)
             
             path_diff = 2 * n_film * thickness_variation * cos_theta_t
-            
-            n_layers = [n_air, n_film, n_substrate]
-            phase_shift = 0
-            for i in range(len(n_layers) - 1):
-                if n_layers[i] < n_layers[i+1]:
-                    phase_shift += np.pi
             
             phase_diff = 2 * np.pi * path_diff / wavelength + phase_shift
             intensity = 0.5 * (1 + np.cos(phase_diff))
@@ -370,6 +345,8 @@ class OpticalCalculator:
                 'fringe_spacing': wavelength / (2 * n_film * cos_theta_t),
                 'effective_angle': np.degrees(np.arcsin(n_air / n_film * np.sin(incident_angle))),
                 'phase_shift': phase_shift,
+                'current_phase_difference': float(2 * np.pi * 2 * n_film * film_thickness * cos_theta_t / wavelength + phase_shift),
+                'current_reflectance': float(0.5 * (1 + np.cos(2 * np.pi * 2 * n_film * film_thickness * cos_theta_t / wavelength + phase_shift))),
                 'path_difference': path_diff,
                 'phase_difference': phase_diff
             }
@@ -380,8 +357,6 @@ class OpticalCalculator:
             
             cos_theta_t = np.sqrt(1 - (n_air / n_film * np.sin(theta_i)) ** 2)
             path_diff = 2 * n_film * film_thickness * cos_theta_t
-            
-            phase_shift = np.pi if (n_air < n_film and n_film > n_substrate) else 0
             
             phase_diff = 2 * np.pi * path_diff / wavelength + phase_shift
             intensity = 0.5 * (1 + np.cos(phase_diff))
@@ -394,6 +369,8 @@ class OpticalCalculator:
                 'interference_type': '等倾干涉',
                 'theta_range': [0, np.degrees(np.pi/3)],
                 'phase_shift': phase_shift,
+                'current_phase_difference': float(phase_diff[0]),
+                'current_reflectance': float(intensity[0]),
                 'path_difference': path_diff,
                 'phase_difference': phase_diff
             }
@@ -434,39 +411,41 @@ class OpticalCalculator:
             phase_diff: 相位差分布
             info: 详细物理信息
         """
-        x = np.linspace(-screen_width/2, screen_width/2, num_points)
-        
+        analyzer_scan = np.linspace(0, np.pi, num_points)
         delta = np.pi / 2 if waveplate_type == 'quarter' else np.pi
-        
-        cos_p = np.cos(polarizer_angle)
-        sin_p = np.sin(polarizer_angle)
-        cos_a = np.cos(analyzer_angle)
-        sin_a = np.sin(analyzer_angle)
-        cos_w = np.cos(waveplate_angle)
-        sin_w = np.sin(waveplate_angle)
-        
-        angle_diff = analyzer_angle - polarizer_angle
-        angle_wp = analyzer_angle - waveplate_angle
-        angle_pw = waveplate_angle - polarizer_angle
-        
-        interference_term = np.cos(2 * angle_diff) - \
-                          np.cos(delta) * np.cos(2 * angle_wp) * np.cos(2 * angle_pw) + \
-                          np.sin(delta) * np.sin(2 * angle_wp) * np.sin(2 * angle_pw)
-        
-        base_intensity = 0.5 * (1 + interference_term)
-        
-        spatial_freq = 50
-        interference_modulation = 0.3 * np.sin(x * spatial_freq)
-        
-        intensity = base_intensity + interference_modulation
-        
-        intensity = np.clip(intensity, 0, 1)
-        
-        max_int = np.max(intensity)
-        if max_int > 0:
-            intensity = intensity / max_int
-        
-        extinction_ratio = np.min(intensity) / (np.max(intensity) + 1e-10)
+
+        def rotation(angle):
+            return np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]], dtype=complex)
+
+        input_field = np.array([np.cos(polarizer_angle), np.sin(polarizer_angle)], dtype=complex)
+        waveplate = rotation(waveplate_angle) @ np.diag([1.0, np.exp(1j * delta)]) @ rotation(-waveplate_angle)
+        output_field = waveplate @ input_field
+
+        analyzer_axes = np.column_stack((np.cos(analyzer_scan), np.sin(analyzer_scan)))
+        intensity = np.abs(analyzer_axes @ output_field) ** 2
+        intensity = np.clip(np.real(intensity), 0, 1)
+
+        current_axis = np.array([np.cos(analyzer_angle), np.sin(analyzer_angle)], dtype=complex)
+        current_intensity = float(np.abs(current_axis @ output_field) ** 2)
+        min_intensity = float(np.min(intensity))
+        max_intensity = float(np.max(intensity))
+        extinction_ratio = max_intensity / max(min_intensity, 1e-12)
+
+        ex, ey = output_field
+        stokes = np.array([
+            np.abs(ex) ** 2 + np.abs(ey) ** 2,
+            np.abs(ex) ** 2 - np.abs(ey) ** 2,
+            2 * np.real(ex * np.conj(ey)),
+            -2 * np.imag(ex * np.conj(ey)),
+        ], dtype=float)
+        polarization_azimuth = 0.5 * np.arctan2(stokes[2], stokes[1])
+        ellipticity_angle = 0.5 * np.arcsin(np.clip(stokes[3] / stokes[0], -1, 1))
+        if abs(abs(np.degrees(ellipticity_angle)) - 45) < 1:
+            polarization_state = '近圆偏振'
+        elif abs(np.degrees(ellipticity_angle)) < 1:
+            polarization_state = '线偏振'
+        else:
+            polarization_state = '椭圆偏振'
         
         info = {
             'polarizer_angle': np.degrees(polarizer_angle),
@@ -474,16 +453,21 @@ class OpticalCalculator:
             'waveplate_angle': np.degrees(waveplate_angle),
             'waveplate_type': waveplate_type,
             'extinction_ratio': extinction_ratio,
-            'max_intensity': np.max(intensity),
-            'min_intensity': np.min(intensity),
+            'max_intensity': max_intensity,
+            'min_intensity': min_intensity,
+            'current_intensity': current_intensity,
+            'polarization_state': polarization_state,
+            'polarization_azimuth': np.degrees(polarization_azimuth),
+            'ellipticity_angle': np.degrees(ellipticity_angle),
+            'stokes_parameters': stokes,
             'phase_retardation': np.degrees(delta),
             'birefringence': n_e - n_o,
             'phase_difference': delta
         }
         
-        phase_diff = np.linspace(0, 2 * np.pi, num_points)
-        
-        return x, intensity, phase_diff, info
+        phase_diff = np.full(num_points, delta)
+
+        return analyzer_scan, intensity, phase_diff, info
 
     @staticmethod
     def add_noise(

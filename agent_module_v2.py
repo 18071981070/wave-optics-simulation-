@@ -5,6 +5,7 @@
 """
 import re
 import math
+import os
 import requests
 from typing import List, Dict, Optional, Any
 
@@ -17,16 +18,22 @@ class EnhancedPhysicsAgent:
     def __init__(self):
         self.conversation_history = []
         self.api_type = "dashscope"
-        self.api_url = "http://localhost:8000/v1/chat/completions"
+        self.api_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
         self.model_name = "qwen3-max"
         self.dashscope_api_key = ""
+        self._environment_api_key = ""
+        self.api_source = "未配置"
+        self.api_key_env_name = ""
+        self._load_environment_config()
         self.current_mode = "physics"
         self.current_experiment = None
         self.current_parameters = {}
         self.api_status = "unknown"
         self.api_error_message = ""
+        if self._environment_api_key:
+            self.api_status = "ready"
 
-        self.physics_system_prompt = """你是一个波动光学领域的专业AI助手，名为"小光"。
+        self.physics_system_prompt = r"""你是一个波动光学领域的专业AI助手，名为"小光"。
 
 ## 专业领域
 波动光学、干涉、衍射、偏振等物理实验
@@ -147,6 +154,56 @@ $$Δx = {result}$$
 - 回答清晰易懂
 - 如果不确定，诚实说明"""
 
+    def _load_environment_config(self):
+        """Load API settings from environment variables without exposing secrets."""
+        api_type = os.getenv("PHYSICS_AGENT_API_TYPE", "").strip().lower()
+        if api_type in {"ollama", "dashscope"}:
+            self.api_type = api_type
+
+        if self.api_type == "ollama":
+            self.api_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1/chat/completions").strip()
+            self.model_name = os.getenv("OLLAMA_MODEL", "qwen2.5:7b").strip()
+            self.api_source = "系统环境变量" if os.getenv("OLLAMA_BASE_URL") or os.getenv("OLLAMA_MODEL") else "默认配置"
+            return
+
+        self.api_url = os.getenv(
+            "DASHSCOPE_API_URL",
+            os.getenv("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"),
+        ).strip()
+        self.model_name = os.getenv("DASHSCOPE_MODEL", os.getenv("OPENAI_MODEL", "qwen3-max")).strip()
+
+        key_names = ("DASHSCOPE_API_KEY", "DASHSCOPE_KEY", "QWEN_API_KEY")
+        for name in key_names:
+            value = os.getenv(name, "").strip()
+            if value:
+                self._environment_api_key = value
+                self.dashscope_api_key = value
+                self.api_key_env_name = name
+                self.api_source = "系统环境变量"
+                break
+        if not self._environment_api_key:
+            # OPENAI_API_KEY is accepted only when a compatible custom endpoint is configured.
+            if os.getenv("OPENAI_BASE_URL") and os.getenv("OPENAI_API_KEY"):
+                self._environment_api_key = os.getenv("OPENAI_API_KEY").strip()
+                self.dashscope_api_key = self._environment_api_key
+                self.api_key_env_name = "OPENAI_API_KEY"
+                self.api_source = "系统环境变量"
+            else:
+                self.api_source = "默认配置"
+
+    def refresh_environment_config(self):
+        """Re-read environment configuration while preserving the conversation."""
+        self.api_type = "dashscope"
+        self.api_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+        self.model_name = "qwen3-max"
+        self.dashscope_api_key = ""
+        self._environment_api_key = ""
+        self.api_source = "未配置"
+        self.api_key_env_name = ""
+        self._load_environment_config()
+        if self._environment_api_key and self.api_status in {"unknown", "ready"}:
+            self.api_status = "ready"
+
     def switch_mode(self, mode: str):
         self.current_mode = mode
 
@@ -157,27 +214,44 @@ $$Δx = {result}$$
     def set_api_type(self, api_type: str):
         self.api_type = api_type
         if api_type == "dashscope":
-            self.api_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-            self.model_name = "qwen3-max"
+            self.api_url = os.getenv("DASHSCOPE_API_URL", os.getenv("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")).strip()
+            self.model_name = os.getenv("DASHSCOPE_MODEL", os.getenv("OPENAI_MODEL", "qwen3-max")).strip()
         elif api_type == "ollama":
-            self.api_url = "http://localhost:8000/v1/chat/completions"
-            self.model_name = "Qwen"
+            self.api_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1/chat/completions").strip()
+            self.model_name = os.getenv("OLLAMA_MODEL", "qwen2.5:7b").strip()
 
     def set_api_key(self, api_key: str):
-        self.dashscope_api_key = api_key
+        manual_key = (api_key or "").strip()
+        if manual_key:
+            self.dashscope_api_key = manual_key
+            self.api_source = "手动输入"
+        else:
+            self.dashscope_api_key = self._environment_api_key
+            self.api_source = "系统环境变量" if self._environment_api_key else "未配置"
 
     def set_api_config(self, api_url: str, model_name: str):
-        self.api_url = api_url
-        self.model_name = model_name
+        self.api_url = (api_url or self.api_url).strip()
+        self.model_name = (model_name or self.model_name).strip()
 
     def get_system_prompt(self) -> str:
         if self.current_mode == "physics":
             experiment_info = self.current_experiment or "未指定"
             params_info = "\n".join([f"- {k}: {v}" for k, v in self.current_parameters.items()]) if self.current_parameters else "无"
-            return self.physics_system_prompt.format(
-                experiment_name=experiment_info,
-                parameters=params_info
-            )
+            # Do not use str.format here: the prompt contains many LaTeX
+            # braces (for example \frac{...}{...}) that are not placeholders.
+            prompt = self.physics_system_prompt.replace(
+                "{experiment_name}", experiment_info
+            ).replace("{parameters}", params_info)
+            formula_hints = {
+                "双缝干涉": "优先检查 Δx = λD/d，并说明波长、屏距增大时条纹变疏，缝距增大时条纹变密。",
+                "单缝衍射": "优先检查 Δx₀ = 2λD/a，并区分中央明纹宽度与旁瓣强度。",
+                "多缝光栅": "优先使用 d·sinθ = kλ，并结合缝数 N 说明主峰变窄、分辨率 R = kN。",
+                "迈克耳孙干涉": "优先使用 ΔN = 2Δd/λ，解释反射臂位移为何对应两倍光程变化。",
+                "薄膜干涉": "先判断反射相位是否发生半波损失，再使用 2nd·cosθ 的光程差表达式。",
+                "偏振干涉": "优先使用 I = I₀·cos²θ，并根据波片相位延迟判断线偏振、圆偏振或椭圆偏振。",
+            }
+            prompt += "\n## 当前实验回答重点\n" + formula_hints.get(experiment_info, "先识别实验模型，再代入当前参数给出可检验的结论。")
+            return prompt
         else:
             return self.general_system_prompt
 
@@ -213,7 +287,7 @@ $$Δx = {result}$$
             }
             
             response = requests.post(
-                "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+                self.api_url,
                 headers=headers,
                 json=payload,
                 timeout=30
@@ -299,7 +373,7 @@ $$Δx = {result}$$
             }
 
             response = requests.post(
-                "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+                self.api_url,
                 headers=headers,
                 json=payload,
                 timeout=60
@@ -374,23 +448,31 @@ $$Δx = {result}$$
             return None
 
     def generate_response(self, user_input: str) -> str:
-        """生成回复"""
-        self.add_message("user", user_input)
+        """Generate a reply without allowing an API failure to crash the UI."""
+        question = (user_input or "").strip()
+        if not question:
+            return "请输入问题后再发送。"
 
-        messages = [
-            {"role": "system", "content": self.get_system_prompt()}
-        ]
+        self.add_message("user", question)
 
-        for msg in self.conversation_history[:-1]:
-            messages.append({"role": msg["role"], "content": msg["content"]})
-
-        response = self.call_api(messages)
+        try:
+            messages = [{"role": "system", "content": self.get_system_prompt()}]
+            # Include the current user question. The previous implementation
+            # sliced it off, so the first shortcut sent only a system prompt.
+            for msg in self.conversation_history[-12:]:
+                if msg.get("role") in {"user", "assistant"} and msg.get("content"):
+                    messages.append({"role": msg["role"], "content": str(msg["content"])})
+            response = self.call_api(messages)
+        except Exception as exc:
+            self.api_status = "error"
+            self.api_error_message = f"智能助手处理失败：{exc}"
+            response = None
 
         if response:
             self.add_message("assistant", response)
             return response
 
-        local_response = self.get_local_response(user_input)
+        local_response = self.get_local_response(question)
         self.add_message("assistant", local_response)
         return local_response
 
@@ -402,15 +484,80 @@ $$Δx = {result}$$
             return self._get_general_response(question)
 
     def _get_physics_response(self, question: str) -> str:
-        """物理模式本地回复（简洁版本）"""
+        """Physics-aware fallback used when the remote model is unavailable."""
         question_lower = question.lower()
         experiment_info = self.current_experiment or "物理实验"
-        
+
+        principle_answers = {
+            "双缝干涉": (
+                r"双缝同时受到同一相干光源照明时，两缝可看作频率相同、相位差稳定的次波源。"
+                r"屏上某点的光程差为 $\delta=d\sin\theta$；当 $\delta=k\lambda$ 时相长干涉形成亮纹，"
+                r"当 $\delta=(k+1/2)\lambda$ 时相消干涉形成暗纹。小角度下相邻亮纹间距为 "
+                r"$\Delta x\approx\lambda D/d$。"
+            ),
+            "单缝衍射": (
+                r"单缝内各点都可看作次波源，它们在观测方向上相干叠加。当 $a\sin\theta=k\lambda$ "
+                r"时成对次波相互抵消，形成暗纹。中央亮纹宽度约为 $2\lambda D/a$，因此缝越窄，"
+                r"衍射展开得越明显。"
+            ),
+            "多缝光栅": (
+                r"光栅是多个相干窄缝的多光束干涉。满足 $d\sin\theta=k\lambda$ 的方向上，"
+                r"所有缝的振幅同相相加，形成尖锐主极大；缝数 $N$ 越多，主峰越窄，分辨本领 $R=kN$ 越高。"
+            ),
+            "迈克耳孙干涉": (
+                r"分束镜将入射光分到两条光臂，反射后再次合束。两束光的光程差决定明暗；"
+                r"反射镜移动 $\Delta d$ 会使往返光程改变 $2\Delta d$，所以条纹移动数为 $\Delta N=2\Delta d/\lambda$。"
+            ),
+            "薄膜干涉": (
+                r"薄膜上、下表面的反射光相互叠加，几何光程差为 $2nd\cos\theta$。"
+                r"判断亮暗时还要检查两次反射是否只有一次发生半波损失，若是，需额外加上 $\pi$ 的相位差。"
+            ),
+            "偏振干涉": (
+                r"起偏器先选出线偏振光，波片使两个正交分量产生相位延迟，检偏器再把它们投影到同一方向并叠加。"
+                r"无波片时理想线偏振光遵循马吕斯定律 $I=I_0\cos^2\theta$。"
+            ),
+        }
+
+        def number_from(*names):
+            for name in names:
+                value = self.current_parameters.get(name)
+                if value is None:
+                    continue
+                match = re.search(r"[-+]?\d+(?:\.\d+)?", str(value))
+                if match:
+                    return float(match.group())
+            return None
+
+        # Provide a useful calculation even when the remote model is unavailable.
+        if any(word in question_lower for word in ["公式", "计算", "怎么算", "间距", "宽度", "结果"]):
+            wavelength_nm = number_from("波长")
+            screen_m = number_from("屏距")
+            slit_mm = number_from("缝距", "缝宽")
+            if wavelength_nm is not None and screen_m is not None and slit_mm:
+                if experiment_info == "双缝干涉":
+                    fringe_mm = wavelength_nm * screen_m / slit_mm * 1e-3
+                    return (
+                        f"根据当前参数：λ={wavelength_nm:g} nm，D={screen_m:g} m，d={slit_mm:g} mm。\n\n"
+                        "双缝条纹间距为 $\\Delta x=\\frac{\\lambda D}{d}$，代入得：\n\n"
+                        f"$\\Delta x=\\frac{{{wavelength_nm:g}\\times10^{{-9}}\\times{screen_m:g}}}{{{slit_mm:g}\\times10^{{-3}}}}$"
+                        f"$\\approx {fringe_mm:.3f}$ mm。调大 λ 或 D 会使条纹变疏，调大 d 会使条纹变密。"
+                    )
+                if experiment_info == "单缝衍射":
+                    width_mm = 2 * wavelength_nm * screen_m / slit_mm * 1e-3
+                    return (
+                        f"当前中央明纹宽度按 $\\Delta x_0=2\\lambda D/a$ 计算。代入 λ={wavelength_nm:g} nm、"
+                        f"D={screen_m:g} m、a={slit_mm:g} mm，得到 $\\Delta x_0\\approx {width_mm:.3f}$ mm。"
+                        "缝宽减小或屏距增大时，中央明纹会明显变宽。"
+                    )
+
         if any(word in question_lower for word in ["你好", "hi", "hello", "嗨", "在吗"]):
             return f"你好！我是波动光学助手小光！🔬 我看到你正在做【{experiment_info}】实验，有什么问题我可以帮你解答吗？"
 
         if "原理" in question or "为什么" in question:
-            return f"""关于【{experiment_info}】的原理，简单来说就是光的干涉/衍射现象。由于AI服务暂时不可用，我没法详细解释，建议你检查一下API服务是否正常启动，或者参考页面上的"物理原理"部分！😊"""
+            return principle_answers.get(
+                experiment_info,
+                "光学图样来自光波的相干叠加。请先确认实验类型，再根据光程差判断亮暗条件。",
+            )
 
         if "公式" in question or "计算" in question or "算" in question:
             params_str = ", ".join([f"{k}={v}" for k, v in self.current_parameters.items()]) if self.current_parameters else "暂无参数"
