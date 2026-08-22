@@ -2343,18 +2343,131 @@ with st.expander("🤖 智能助手", expanded=False):
         
         st.markdown("---")
     
-    st.markdown("**⚙️ 系统 API 配置：**")
-    if getattr(agent, "api_type", "dashscope") == "dashscope":
-        if getattr(agent, "_environment_api_key", ""):
-            env_name = getattr(agent, "api_key_env_name", "DASHSCOPE_API_KEY")
-            st.success(f"已自动加载系统环境变量 {env_name}，无需手动填写 API Key。")
-        else:
-            st.error("未检测到系统环境变量 DASHSCOPE_API_KEY，请在系统环境中配置后重新启动程序。")
+    st.markdown("**⚙️ API 配置（手动填写，立即生效）：**")
+
+    def _cfg_state(key, fallback):
+        if key not in st.session_state:
+            st.session_state[key] = fallback
+        return st.session_state[key]
+
+    env_api_key = getattr(agent, "_environment_api_key", "")
+    api_type = getattr(agent, "api_type", "dashscope")
+
+    if env_api_key:
+        env_name = getattr(agent, "api_key_env_name", "DASHSCOPE_API_KEY")
+        st.success(f"✅ 已自动加载 {env_name}（系统环境变量），可直接使用；也可在下方手动填写覆盖。")
     else:
-        st.success("已从系统环境变量加载本地模型配置。")
+        st.info("ℹ️ 未检测到环境变量，请在下方手动填写 API Key 后点击“保存配置”即可生效。")
+
+    with st.expander("展开手动配置（API Key / 端点 / 模型）", expanded=not env_api_key):
+        _cfg_state("manual_api_type", api_type if api_type in ("dashscope", "ollama") else "dashscope")
+        manual_type = st.radio(
+            "服务类型",
+            ["DashScope（阿里云通义千问 / 兼容端点）", "Ollama 本地模型"],
+            index=0 if st.session_state["manual_api_type"] == "dashscope" else 1,
+            horizontal=True,
+            key="manual_api_type_radio",
+        )
+        st.session_state["manual_api_type"] = "dashscope" if "DashScope" in manual_type else "ollama"
+
+        if "DashScope" in manual_type:
+            _cfg_state(
+                "manual_api_url",
+                "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+            )
+            _cfg_state("manual_model", getattr(agent, "model_name", "qwen3-max"))
+            _cfg_state("manual_api_key", "")
+            api_url = st.text_input(
+                "API 端点（兼容 OpenAI 的 Chat Completions 地址）",
+                value=st.session_state["manual_api_url"],
+                key="manual_api_url_input",
+                help="DashScope 官方：https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions\n"
+                     "国际版：https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions\n"
+                     "DeepSeek：https://api.deepseek.com/v1/chat/completions  等",
+            )
+            col_k, col_m = st.columns([3, 2])
+            with col_k:
+                api_key = st.text_input(
+                    "API Key",
+                    value=st.session_state["manual_api_key"],
+                    type="password",
+                    placeholder="sk-xxxxxxxxxxxx",
+                    key="manual_api_key_input",
+                    help="密钥只在当前会话中生效，不会持久化保存",
+                )
+            with col_m:
+                model_name = st.text_input(
+                    "模型名",
+                    value=st.session_state["manual_model"],
+                    key="manual_model_input",
+                    placeholder="例如 qwen3-max / deepseek-chat / glm-4-plus",
+                )
+            st.caption("常用端点备忘：DashScope(国内版)、dashscope-intl(国际版)、DeepSeek、智谱 GLM 等均可用。")
+        else:
+            _cfg_state(
+                "manual_ollama_url",
+                getattr(agent, "api_url", "http://localhost:11434/v1/chat/completions"),
+            )
+            _cfg_state("manual_ollama_model", getattr(agent, "model_name", "qwen2.5:7b"))
+            col_o1, col_o2 = st.columns([3, 2])
+            with col_o1:
+                api_url = st.text_input(
+                    "Ollama 端点",
+                    value=st.session_state["manual_ollama_url"],
+                    key="manual_ollama_url_input",
+                )
+            with col_o2:
+                model_name = st.text_input(
+                    "模型名",
+                    value=st.session_state["manual_ollama_model"],
+                    key="manual_ollama_model_input",
+                )
+            api_key = ""  # Ollama 默认不需要 key
+
+        col_save, col_clear = st.columns([1, 1])
+        with col_save:
+            if st.button("💾 保存配置并应用", type="primary", key="save_manual_api"):
+                chosen_type = "dashscope" if "DashScope" in manual_type else "ollama"
+                if hasattr(agent, "set_api_type"):
+                    agent.set_api_type(chosen_type)
+                else:
+                    agent.api_type = chosen_type
+                if hasattr(agent, "set_api_config"):
+                    agent.set_api_config(api_url, model_name)
+                else:
+                    agent.api_url = api_url
+                    agent.model_name = model_name
+                if chosen_type == "dashscope":
+                    if hasattr(agent, "set_api_key"):
+                        agent.set_api_key(api_key)
+                    else:
+                        agent.dashscope_api_key = api_key.strip()
+                    st.session_state["manual_api_url"] = api_url.strip()
+                    st.session_state["manual_model"] = model_name.strip()
+                    st.session_state["manual_api_key"] = api_key.strip()
+                    if api_key.strip():
+                        st.success("✅ 配置已保存，密钥以“手动输入”方式生效。点击“测试连接”验证。")
+                    else:
+                        st.warning("⚠️ 未填写 API Key，请填入后再次保存。")
+                else:
+                    st.session_state["manual_ollama_url"] = api_url.strip()
+                    st.session_state["manual_ollama_model"] = model_name.strip()
+                    st.success("✅ Ollama 配置已保存。点击“测试连接”验证。")
+        with col_clear:
+            if st.button("↩️ 还原为系统环境变量", key="revert_to_env_api"):
+                if hasattr(agent, "refresh_environment_config"):
+                    agent.refresh_environment_config()
+                st.session_state.pop("manual_api_key", None)
+                st.session_state.pop("manual_api_url", None)
+                st.session_state.pop("manual_model", None)
+                st.session_state.pop("manual_ollama_url", None)
+                st.session_state.pop("manual_ollama_model", None)
+                st.info("🔄 已还原。请点击“测试连接”确认。")
+
     st.caption(
-        f"服务类型：{getattr(agent, 'api_type', 'dashscope')}｜"
-        f"模型：{getattr(agent, 'model_name', '')}｜密钥不会在页面中显示或保存"
+        f"当前服务类型：{getattr(agent, 'api_type', '')}｜"
+        f"配置来源：{getattr(agent, 'api_source', '')}｜"
+        f"模型：{getattr(agent, 'model_name', '')}｜密钥不会在页面中显示或保存到磁盘"
     )
     
     st.markdown("---")
