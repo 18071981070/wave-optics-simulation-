@@ -19,7 +19,7 @@ class EnhancedPhysicsAgent:
         self.conversation_history = []
         self.api_type = "dashscope"
         self.api_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-        self.model_name = "qwen3-max"
+        self.model_name = "qwen-plus"
         self.dashscope_api_key = ""
         self._environment_api_key = ""
         self.api_source = "未配置"
@@ -30,6 +30,7 @@ class EnhancedPhysicsAgent:
         self.current_parameters = {}
         self.api_status = "unknown"
         self.api_error_message = ""
+        self._manual_override = False
         if self._environment_api_key:
             self.api_status = "ready"
 
@@ -157,24 +158,60 @@ $$Δx = {result}$$
     def _load_environment_config(self):
         """Load API settings from environment variables without exposing secrets."""
         api_type = os.getenv("PHYSICS_AGENT_API_TYPE", "").strip().lower()
-        if api_type in {"ollama", "dashscope"}:
+        if api_type in {"ollama", "dashscope", "openai"}:
             self.api_type = api_type
 
         if self.api_type == "ollama":
-            self.api_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1/chat/completions").strip()
-            self.model_name = os.getenv("OLLAMA_MODEL", "qwen2.5:7b").strip()
+            self.api_url = self._normalize_chat_endpoint(os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1/chat/completions"))
+            self.model_name = self._clean_env_value(os.getenv("OLLAMA_MODEL", "qwen2.5:7b")) or "qwen2.5:7b"
             self.api_source = "系统环境变量" if os.getenv("OLLAMA_BASE_URL") or os.getenv("OLLAMA_MODEL") else "默认配置"
             return
 
-        self.api_url = os.getenv(
-            "DASHSCOPE_API_URL",
-            os.getenv("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"),
-        ).strip()
-        self.model_name = os.getenv("DASHSCOPE_MODEL", os.getenv("OPENAI_MODEL", "qwen3-max")).strip()
+        if self.api_type == "openai":
+            self.api_url = self._normalize_chat_endpoint(
+                os.getenv("OPENAI_BASE_URL", os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1/chat/completions"))
+            )
+            self.model_name = self._clean_env_value(os.getenv("OPENAI_MODEL", "gpt-4o-mini")) or "gpt-4o-mini"
+            key = self._clean_env_value(os.getenv("OPENAI_API_KEY", ""))
+            if key:
+                self._environment_api_key = key
+                self.dashscope_api_key = key
+                self.api_key_env_name = "OPENAI_API_KEY"
+                self.api_source = "系统环境变量"
+            else:
+                self.api_source = "默认配置"
+            return
 
-        key_names = ("DASHSCOPE_API_KEY", "DASHSCOPE_KEY", "QWEN_API_KEY")
+        dashscope_key_present = any(
+            self._clean_env_value(os.getenv(name, ""))
+            for name in ("DASHSCOPE_API_KEY", "DASHSCOPE_KEY", "QWEN_API_KEY")
+        )
+        openai_key_present = bool(self._clean_env_value(os.getenv("OPENAI_API_KEY", "")))
+        # Explicit endpoints always win. If only OPENAI_API_KEY is present,
+        # use OpenAI's endpoint instead of accidentally sending it to DashScope.
+        explicit_url = os.getenv("DASHSCOPE_API_URL") or os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
+        if explicit_url:
+            self.api_url = explicit_url
+        elif openai_key_present and not dashscope_key_present:
+            self.api_url = "https://api.openai.com/v1/chat/completions"
+        else:
+            self.api_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+        self.api_url = self._normalize_chat_endpoint(self.api_url)
+        default_model = "gpt-4o-mini" if (openai_key_present and not dashscope_key_present and not explicit_url) else "qwen-plus"
+        self.model_name = self._clean_env_value(
+            os.getenv("DASHSCOPE_MODEL", os.getenv("OPENAI_MODEL", default_model))
+        ) or default_model
+
+        # For a custom OpenAI-compatible endpoint, prefer OPENAI_API_KEY.
+        # For DashScope's default endpoint, prefer the DashScope/Qwen aliases.
+        custom_openai_endpoint = bool(os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE") or (openai_key_present and not dashscope_key_present))
+        key_names = (
+            ("OPENAI_API_KEY", "DASHSCOPE_API_KEY", "DASHSCOPE_KEY", "QWEN_API_KEY")
+            if custom_openai_endpoint
+            else ("DASHSCOPE_API_KEY", "DASHSCOPE_KEY", "QWEN_API_KEY", "OPENAI_API_KEY")
+        )
         for name in key_names:
-            value = os.getenv(name, "").strip()
+            value = self._clean_env_value(os.getenv(name, ""))
             if value:
                 self._environment_api_key = value
                 self.dashscope_api_key = value
@@ -182,24 +219,72 @@ $$Δx = {result}$$
                 self.api_source = "系统环境变量"
                 break
         if not self._environment_api_key:
-            # OPENAI_API_KEY is accepted only when a compatible custom endpoint is configured.
-            if os.getenv("OPENAI_BASE_URL") and os.getenv("OPENAI_API_KEY"):
-                self._environment_api_key = os.getenv("OPENAI_API_KEY").strip()
-                self.dashscope_api_key = self._environment_api_key
-                self.api_key_env_name = "OPENAI_API_KEY"
-                self.api_source = "系统环境变量"
-            else:
-                self.api_source = "默认配置"
+            self.api_source = "默认配置"
 
-    def refresh_environment_config(self):
-        """Re-read environment configuration while preserving the conversation."""
+    @staticmethod
+    def _normalize_chat_endpoint(url: str) -> str:
+        """Normalize common OpenAI-compatible base URLs to Chat Completions."""
+        url = (url or "").strip().rstrip("/")
+        if not url:
+            return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+        # The Bailian console is for key management, not an inference API.
+        # Treating it as an endpoint would produce confusing network/404 errors.
+        if "bailian.console.aliyun.com" in url or "dashscope.console.aliyun.com" in url:
+            return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+        if url.endswith("/chat/completions"):
+            return url
+        if url.endswith("/v1"):
+            return url + "/chat/completions"
+        if url.endswith("/compatible-mode"):
+            return url + "/v1/chat/completions"
+        return url + "/v1/chat/completions"
+
+    @staticmethod
+    def _clean_env_value(value: str) -> str:
+        value = str(value or "").strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1].strip()
+        # Permit common .env formats such as: Bearer sk-... or
+        # OPENAI_API_KEY="sk-...". The request code adds the Bearer prefix.
+        if value.lower().startswith("bearer "):
+            value = value[7:].strip()
+        return value
+
+    @staticmethod
+    def _safe_error_message(response) -> str:
+        """Extract a useful provider error without exposing request headers or keys."""
+        try:
+            payload = response.json()
+            error = payload.get("error", payload)
+            if isinstance(error, dict):
+                return str(error.get("message") or error.get("code") or "未知错误")[:240]
+            return str(error)[:240]
+        except Exception:
+            return (getattr(response, "text", "") or "未知错误")[:240]
+
+    @staticmethod
+    def _network_error_message(exc: Exception, configured: bool = True) -> str:
+        """Explain Python-side network failures without exposing secrets."""
+        detail = str(exc or "")
+        if "10013" in detail or "访问套接字" in detail or "Permission denied" in detail:
+            prefix = "API Key 已读取" if configured else "尚未配置 API Key"
+            return f"{prefix}，但当前运行环境禁止 Python 访问外网（网络权限/防火墙限制）；浏览器能打开控制台不代表程序接口可访问。"
+        if "getaddrinfo" in detail or "Name or service not known" in detail:
+            return "API Key 已读取，但 API 域名解析失败，请检查 DNS 或网络代理。"
+        return "API Key 已读取，但当前 Python 网络无法访问 API 服务；请检查代理、防火墙或网络连接。"
+
+    def refresh_environment_config(self, force=False):
+        """Re-read environment configuration without wiping a saved manual override."""
+        if self._manual_override and not force:
+            return
         self.api_type = "dashscope"
         self.api_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-        self.model_name = "qwen3-max"
+        self.model_name = "qwen-plus"
         self.dashscope_api_key = ""
         self._environment_api_key = ""
         self.api_source = "未配置"
         self.api_key_env_name = ""
+        self._manual_override = False
         self._load_environment_config()
         if self._environment_api_key and self.api_status in {"unknown", "ready"}:
             self.api_status = "ready"
@@ -212,15 +297,28 @@ $$Δx = {result}$$
         self.current_parameters = parameters or {}
 
     def set_api_type(self, api_type: str):
+        self._manual_override = True
         self.api_type = api_type
         if api_type == "dashscope":
-            self.api_url = os.getenv("DASHSCOPE_API_URL", os.getenv("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")).strip()
-            self.model_name = os.getenv("DASHSCOPE_MODEL", os.getenv("OPENAI_MODEL", "qwen3-max")).strip()
+            self.api_url = self._normalize_chat_endpoint(
+                os.getenv(
+                    "DASHSCOPE_API_URL",
+                    os.getenv(
+                        "OPENAI_BASE_URL",
+                        os.getenv("OPENAI_API_BASE", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"),
+                    ),
+                )
+            )
+            self.model_name = self._clean_env_value(os.getenv("DASHSCOPE_MODEL", os.getenv("OPENAI_MODEL", "qwen-plus"))) or "qwen-plus"
         elif api_type == "ollama":
-            self.api_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1/chat/completions").strip()
-            self.model_name = os.getenv("OLLAMA_MODEL", "qwen2.5:7b").strip()
+            self.api_url = self._normalize_chat_endpoint(os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1/chat/completions"))
+            self.model_name = self._clean_env_value(os.getenv("OLLAMA_MODEL", "qwen2.5:7b")) or "qwen2.5:7b"
+        elif api_type == "openai":
+            self.api_url = self._normalize_chat_endpoint(os.getenv("OPENAI_BASE_URL", os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1/chat/completions")))
+            self.model_name = self._clean_env_value(os.getenv("OPENAI_MODEL", "gpt-4o-mini")) or "gpt-4o-mini"
 
     def set_api_key(self, api_key: str):
+        self._manual_override = True
         manual_key = (api_key or "").strip()
         if manual_key:
             self.dashscope_api_key = manual_key
@@ -230,8 +328,9 @@ $$Δx = {result}$$
             self.api_source = "系统环境变量" if self._environment_api_key else "未配置"
 
     def set_api_config(self, api_url: str, model_name: str):
-        self.api_url = (api_url or self.api_url).strip()
-        self.model_name = (model_name or self.model_name).strip()
+        self._manual_override = True
+        self.api_url = self._normalize_chat_endpoint(api_url or self.api_url)
+        self.model_name = (model_name or self.model_name).strip() or "qwen-plus"
 
     def get_system_prompt(self) -> str:
         if self.current_mode == "physics":
@@ -263,7 +362,7 @@ $$Δx = {result}$$
 
     def test_api_connection(self) -> bool:
         """测试API连接"""
-        if self.api_type == "dashscope":
+        if self.api_type in {"dashscope", "openai"}:
             return self._test_dashscope_connection()
         else:
             return self._test_ollama_connection()
@@ -299,17 +398,28 @@ $$Δx = {result}$$
                     self.api_status = "connected"
                     self.api_error_message = ""
                     return True
-                else:
-                    self.api_status = "error"
-                    self.api_error_message = f"API返回格式错误: {result.get('error', {}).get('message', '未知错误')}"
-                    return False
+            elif response.status_code in (401, 403):
+                self.api_status = "error"
+                self.api_error_message = "API Key 无效或没有该模型的调用权限，请检查 Key 与端点是否匹配。"
+                return False
+            elif response.status_code == 404:
+                self.api_status = "error"
+                self.api_error_message = f"端点或模型不存在：{self._safe_error_message(response)}"
+                return False
             else:
                 self.api_status = "error"
-                self.api_error_message = f"API返回错误，状态码: {response.status_code}"
+                self.api_error_message = f"API返回错误，状态码: {response.status_code} - {self._safe_error_message(response)}"
                 return False
-        except requests.exceptions.ConnectionError:
-            self.api_status = "disconnected"
-            self.api_error_message = "网络连接失败，请检查网络"
+            self.api_status = "error"
+            self.api_error_message = f"API返回格式错误: {self._safe_error_message(response)}"
+            return False
+        except requests.exceptions.ConnectionError as exc:
+            self.api_status = "configured_offline" if self.dashscope_api_key else "disconnected"
+            self.api_error_message = self._network_error_message(exc, bool(self.dashscope_api_key))
+            return False
+        except (PermissionError, OSError) as exc:
+            self.api_status = "configured_offline" if self.dashscope_api_key else "disconnected"
+            self.api_error_message = self._network_error_message(exc, bool(self.dashscope_api_key))
             return False
         except requests.exceptions.Timeout:
             self.api_status = "timeout"
@@ -347,7 +457,7 @@ $$Δx = {result}$$
 
     def call_api(self, messages: List[Dict]) -> Optional[str]:
         """调用API"""
-        if self.api_type == "dashscope":
+        if self.api_type in {"dashscope", "openai"}:
             return self._call_dashscope_api(messages)
         else:
             return self._call_ollama_api(messages)
@@ -387,15 +497,19 @@ $$Δx = {result}$$
                     return result["choices"][0]["message"]["content"]
                 else:
                     self.api_status = "error"
-                    self.api_error_message = f"API返回格式错误: {result.get('error', {}).get('message', '未知错误')}"
+                    self.api_error_message = f"API返回格式错误: {self._safe_error_message(response)}"
             else:
                 self.api_status = "error"
-                self.api_error_message = f"API返回错误，状态码: {response.status_code}"
+                self.api_error_message = f"API返回错误，状态码: {response.status_code} - {self._safe_error_message(response)}"
             
             return None
-        except requests.exceptions.ConnectionError:
-            self.api_status = "disconnected"
-            self.api_error_message = "网络连接失败"
+        except requests.exceptions.ConnectionError as exc:
+            self.api_status = "configured_offline" if self.dashscope_api_key else "disconnected"
+            self.api_error_message = self._network_error_message(exc, bool(self.dashscope_api_key))
+            return None
+        except (PermissionError, OSError) as exc:
+            self.api_status = "configured_offline" if self.dashscope_api_key else "disconnected"
+            self.api_error_message = self._network_error_message(exc, bool(self.dashscope_api_key))
             return None
         except requests.exceptions.Timeout:
             self.api_status = "timeout"
@@ -428,10 +542,10 @@ $$Δx = {result}$$
                     return result["choices"][0]["message"]["content"]
                 else:
                     self.api_status = "error"
-                    self.api_error_message = "API返回格式错误"
+                    self.api_error_message = f"API返回格式错误: {self._safe_error_message(response)}"
             else:
                 self.api_status = "error"
-                self.api_error_message = f"API返回错误，状态码: {response.status_code}"
+                self.api_error_message = f"API返回错误，状态码: {response.status_code} - {self._safe_error_message(response)}"
             
             return None
         except requests.exceptions.ConnectionError:
@@ -475,6 +589,195 @@ $$Δx = {result}$$
         local_response = self.get_local_response(question)
         self.add_message("assistant", local_response)
         return local_response
+
+    def _build_messages_for_user(self, question: str) -> List[Dict]:
+        """构建发送给 API 的消息列表（包含 system + 最近 12 条历史 + 当前问题）。"""
+        self.add_message("user", question)
+        messages = [{"role": "system", "content": self.get_system_prompt()}]
+        for msg in self.conversation_history[-12:]:
+            if msg.get("role") in {"user", "assistant"} and msg.get("content"):
+                messages.append({"role": msg["role"], "content": str(msg["content"])})
+        return messages
+
+    def stream_response(self, user_input: str):
+        """
+        流式生成回复（生成器）。
+        - 优先使用流式 API：边生成边返回，显著降低首字等待时间。
+        - API 不可用或返回失败时降级到本地知识库回复。
+        - 自动把完整回复写回 conversation_history，与 generate_response 行为一致。
+        """
+        question = (user_input or "").strip()
+        if not question:
+            yield "请输入问题后再发送。"
+            return
+
+        # 构造消息（同时把 user 消息加入历史）
+        try:
+            messages = self._build_messages_for_user(question)
+        except Exception as exc:
+            self.api_status = "error"
+            self.api_error_message = f"智能助手处理失败：{exc}"
+            yield self.get_local_response(question)
+            return
+
+        # 尝试流式 API
+        full_text = ""
+        try:
+            if self.api_type in {"dashscope", "openai"}:
+                full_text = yield from self._stream_dashscope_api(messages)
+            else:
+                full_text = yield from self._stream_ollama_api(messages)
+        except Exception as exc:
+            self.api_status = "error"
+            self.api_error_message = f"智能助手处理失败：{exc}"
+            full_text = ""
+
+        if not full_text:
+            # API 失败，降级到本地回复（一次性输出）
+            local_response = self.get_local_response(question)
+            self.add_message("assistant", local_response)
+            yield local_response
+            return
+
+        # 流式成功，把完整回复写回历史
+        self.add_message("assistant", full_text)
+
+    def _stream_dashscope_api(self, messages: List[Dict]):
+        """流式调用 DashScope/OpenAI 兼容接口，逐 token yield。"""
+        if not self.dashscope_api_key:
+            self.api_status = "error"
+            self.api_error_message = "请输入阿里云API Key"
+            return
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.dashscope_api_key}",
+        }
+        payload = {
+            "model": self.model_name,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 3000,
+            "stream": True,
+        }
+
+        try:
+            # stream=True 让 requests 按行迭代 SSE 数据
+            with requests.post(
+                self.api_url,
+                headers=headers,
+                json=payload,
+                stream=True,
+                timeout=(10, 120),  # 连接超时 10s，读取超时 120s
+            ) as response:
+                if response.status_code != 200:
+                    self.api_status = "error"
+                    self.api_error_message = (
+                        f"API返回错误，状态码: {response.status_code} - "
+                        f"{self._safe_error_message(response)}"
+                    )
+                    return
+
+                self.api_status = "connected"
+                self.api_error_message = ""
+
+                import json as _json
+                full_text = ""
+                for line in response.iter_lines(decode_unicode=True):
+                    if not line:
+                        continue
+                    # OpenAI 兼容 SSE：每行以 "data: " 开头
+                    if line.startswith("data: "):
+                        line = line[6:]
+                    if line.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = _json.loads(line)
+                    except Exception:
+                        continue
+                    try:
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        token = delta.get("content", "")
+                    except Exception:
+                        token = ""
+                    if token:
+                        full_text += token
+                        yield token
+                return full_text
+        except requests.exceptions.ConnectionError as exc:
+            self.api_status = "configured_offline" if self.dashscope_api_key else "disconnected"
+            self.api_error_message = self._network_error_message(exc, bool(self.dashscope_api_key))
+        except (PermissionError, OSError) as exc:
+            self.api_status = "configured_offline" if self.dashscope_api_key else "disconnected"
+            self.api_error_message = self._network_error_message(exc, bool(self.dashscope_api_key))
+        except requests.exceptions.Timeout:
+            self.api_status = "timeout"
+            self.api_error_message = "API请求超时"
+        except Exception as e:
+            self.api_status = "error"
+            self.api_error_message = f"API调用异常: {str(e)}"
+
+    def _stream_ollama_api(self, messages: List[Dict]):
+        """流式调用 Ollama 接口，逐 token yield。"""
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "model": self.model_name,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 3000,
+            "stream": True,
+        }
+
+        try:
+            with requests.post(
+                self.api_url,
+                headers=headers,
+                json=payload,
+                stream=True,
+                timeout=(10, 120),
+            ) as response:
+                if response.status_code != 200:
+                    self.api_status = "error"
+                    self.api_error_message = (
+                        f"API返回错误，状态码: {response.status_code} - "
+                        f"{self._safe_error_message(response)}"
+                    )
+                    return
+
+                self.api_status = "connected"
+                self.api_error_message = ""
+
+                import json as _json
+                full_text = ""
+                for line in response.iter_lines(decode_unicode=True):
+                    if not line:
+                        continue
+                    if line.startswith("data: "):
+                        line = line[6:]
+                    if line.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = _json.loads(line)
+                    except Exception:
+                        continue
+                    try:
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        token = delta.get("content", "")
+                    except Exception:
+                        token = ""
+                    if token:
+                        full_text += token
+                        yield token
+                return full_text
+        except requests.exceptions.ConnectionError:
+            self.api_status = "disconnected"
+            self.api_error_message = "无法连接到Ollama服务，请检查服务是否启动"
+        except requests.exceptions.Timeout:
+            self.api_status = "timeout"
+            self.api_error_message = "API请求超时"
+        except Exception as e:
+            self.api_status = "error"
+            self.api_error_message = f"API调用异常: {str(e)}"
 
     def get_local_response(self, question: str) -> str:
         """本地知识回复（API不可用时的降级方案）"""
@@ -538,15 +841,20 @@ $$Δx = {result}$$
                     fringe_mm = wavelength_nm * screen_m / slit_mm * 1e-3
                     return (
                         f"根据当前参数：λ={wavelength_nm:g} nm，D={screen_m:g} m，d={slit_mm:g} mm。\n\n"
-                        "双缝条纹间距为 $\\Delta x=\\frac{\\lambda D}{d}$，代入得：\n\n"
-                        f"$\\Delta x=\\frac{{{wavelength_nm:g}\\times10^{{-9}}\\times{screen_m:g}}}{{{slit_mm:g}\\times10^{{-3}}}}$"
-                        f"$\\approx {fringe_mm:.3f}$ mm。调大 λ 或 D 会使条纹变疏，调大 d 会使条纹变密。"
+                        "双缝条纹间距为：\n\n"
+                        "$$\\Delta x=\\frac{\\lambda D}{d}$$\n\n"
+                        "代入当前参数：\n\n"
+                        f"$$\\Delta x=\\frac{{{wavelength_nm:g}\\times10^{{-9}}\\times{screen_m:g}}}{{{slit_mm:g}\\times10^{{-3}}}}"
+                        f"\\approx {fringe_mm:.3f}\\times10^{{-3}}\\,\\mathrm{{m}}={fringe_mm:.3f}\\,\\mathrm{{mm}}$$\n\n"
+                        "调大 λ 或 D 会使条纹变疏，调大 d 会使条纹变密。"
                     )
                 if experiment_info == "单缝衍射":
                     width_mm = 2 * wavelength_nm * screen_m / slit_mm * 1e-3
                     return (
-                        f"当前中央明纹宽度按 $\\Delta x_0=2\\lambda D/a$ 计算。代入 λ={wavelength_nm:g} nm、"
-                        f"D={screen_m:g} m、a={slit_mm:g} mm，得到 $\\Delta x_0\\approx {width_mm:.3f}$ mm。"
+                        "当前中央明纹宽度按下式计算：\n\n"
+                        "$$\\Delta x_0=\\frac{2\\lambda D}{a}$$\n\n"
+                        f"代入 λ={wavelength_nm:g} nm、D={screen_m:g} m、a={slit_mm:g} mm，得到：\n\n"
+                        f"$$\\Delta x_0\\approx {width_mm:.3f}\\,\\mathrm{{mm}}$$\n\n"
                         "缝宽减小或屏距增大时，中央明纹会明显变宽。"
                     )
 

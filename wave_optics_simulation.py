@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
@@ -7,6 +8,8 @@ from matplotlib.colors import LinearSegmentedColormap
 import pandas as pd
 from io import BytesIO
 import os
+import html
+import json
 from PIL import Image
 
 font_path = os.path.join(os.path.dirname(__file__), 'simhei.ttf')
@@ -32,9 +35,334 @@ matplotlib.rcParams.update({
 })
 
 
+# 桌面宠物：可拖动浮窗，显示当前操作 + 参数摘要 + 快捷按钮 + 动态提示
+_PET_TIPS = {
+    "双缝干涉": [
+        "💡 调大波长或屏距，条纹变疏～",
+        "💡 减小缝距，条纹会更稀疏哦～",
+        "💡 降低相干性，条纹对比度下降～",
+    ],
+    "单缝衍射": [
+        "💡 缝越窄，中央明纹越宽～",
+        "💡 中央明纹宽度 ≈ 2λD/a～",
+        "💡 次级明纹强度递减很快～",
+    ],
+    "多缝光栅": [
+        "💡 缝数越多，主峰越尖锐～",
+        "💡 分辨本领 R = kN～",
+        "💡 注意观察缺级现象～",
+    ],
+    "迈克耳孙干涉": [
+        "💡 动镜移动 λ/2，吞吐一个条纹～",
+        "💡 等倾干涉是同心圆条纹～",
+        "💡 白光干涉只在零级附近出现彩色～",
+    ],
+    "薄膜干涉": [
+        "💡 注意反射有没有半波损失～",
+        "💡 增透膜厚度常取 λ/4～",
+        "💡 肥皂泡颜色来自薄膜干涉～",
+    ],
+    "偏振干涉": [
+        "💡 检偏器旋转，光强按 cos²θ 变化～",
+        "💡 1/4 波片可产生圆偏振光～",
+        "💡 马吕斯定律：I = I₀cos²θ～",
+    ],
+}
+
+
+def render_desktop_pet(experiment_mode, mode_type, user_role, params=None,
+                        just_answered=False, agent_status="unknown", thinking=False):
+    """升级版桌面宠物：可拖动、点击切换台词、折叠气泡、快捷按钮。
+    使用 components.html 渲染（允许执行 JS），并把元素注入到父文档 body，
+    使 position:fixed 相对主窗口而非 component iframe。"""
+    tips = _PET_TIPS.get(experiment_mode, ["💡 试试调节参数，观察图样变化～"])
+    role_label = "👨‍🎓 学生端" if user_role == "学生学习端" else "👩‍🏫 教师端"
+
+    # 表情与状态行
+    if thinking:
+        status_line = "🤔 小光正在思考..."
+        emoji = "😿"
+    elif just_answered:
+        status_line = "✅ 小光刚回答完～"
+        emoji = "😺"
+    elif agent_status in ("connected", "ready"):
+        status_line = "🐾 小光在线，随时提问～"
+        emoji = "🐱"
+    elif agent_status == "configured_offline":
+        status_line = "🟡 小光已配置，网络待恢复"
+        emoji = "😼"
+    elif agent_status in ("disconnected", "timeout", "error"):
+        status_line = "😵 小光暂时离线…"
+        emoji = "😼"
+    else:
+        status_line = f"🐾 正在：{experiment_mode}"
+        emoji = "🐱"
+
+    sub_line = f"{experiment_mode} · {mode_type} · {role_label}"
+
+    # 参数摘要（一行展示）
+    params_line = ""
+    if params:
+        parts = [f"{k}:{v}" for k, v in list(params.items())[:3]]
+        params_line = "  |  ".join(parts)
+
+    # 让桌宠具备“实验成长感”：根据实验上下文和助手状态显示等级与进度。
+    pet_level = 3 if just_answered else (2 if agent_status in ("connected", "ready") else 1)
+    pet_progress = 100 if just_answered else (78 if agent_status in ("connected", "ready") else 52)
+
+    # 转义给 JS 用的字符串
+    def js_str(s):
+        return json.dumps(str(s), ensure_ascii=False)
+
+    tips_js = "[" + ",".join(js_str(t) for t in tips) + "]"
+    status_js = js_str(status_line)
+    sub_js = js_str(sub_line)
+    params_js = js_str(params_line) if params_line else '""'
+    emoji_js = js_str(emoji)
+    level_js = js_str(f"Lv.{pet_level} · 实验陪伴度 {pet_progress}%")
+
+    # CSS 必须注入到父文档 head，否则样式不生效
+    # JS 操作 window.parent.document，把宠物元素 append 到父文档 body
+    pet_code = f"""
+    <script>
+    (function(){{
+      var d = window.parent.document;          // 主页面文档
+      var w = window.parent;                    // 主窗口
+      // 1) 注入样式（只注入一次）
+      if (!d.getElementById('pet-style')) {{
+        var sty = d.createElement('style');
+        sty.id = 'pet-style';
+        sty.textContent = `
+          #pet-wrap{{
+            position:fixed; left:auto; right:18px; top:auto; bottom:18px;
+            z-index:99998; display:flex; flex-direction:column; align-items:flex-end;
+            gap:6px; user-select:none;
+          }}
+          #pet-wrap .pet-bubble{{
+            background:#fff; border:1.5px solid #93c5fd; border-radius:14px;
+            padding:10px 14px; max-width:270px; font-size:13px; line-height:1.45;
+            color:#1e3a8a; box-shadow:0 6px 18px rgba(30,58,138,.18);
+            animation:petFade .35s ease-out; pointer-events:auto;
+          }}
+          #pet-wrap .pet-bubble.pet-hidden{{ display:none; }}
+          #pet-wrap .pet-emoji{{
+            pointer-events:auto; font-size:52px; cursor:grab; user-select:none;
+            animation:petBounce 2.6s ease-in-out infinite;
+            filter:drop-shadow(0 4px 6px rgba(0,0,0,.22)); transition:transform .15s;
+          }}
+          #pet-wrap .pet-emoji:active{{ cursor:grabbing; }}
+          #pet-wrap .pet-emoji.pet-dragging{{ animation:none; opacity:.85; }}
+          #pet-wrap .pet-status{{ font-weight:700; color:#1e3a8a; font-size:13.5px; }}
+          #pet-wrap .pet-level{{ font-size:10.5px; color:#7c3aed; margin-top:3px; font-weight:700; }}
+          #pet-wrap .pet-progress{{ height:5px; margin-top:6px; border-radius:99px; background:#e2e8f0; overflow:hidden; }}
+          #pet-wrap .pet-progress > i{{ display:block; height:100%; width:{pet_progress}%; border-radius:99px; background:linear-gradient(90deg,#38bdf8,#8b5cf6); transition:width .35s ease; }}
+          #pet-wrap .pet-sub{{ font-size:11.5px; color:#475569; margin-top:2px; }}
+          #pet-wrap .pet-params{{ font-size:11px; color:#0f766e; margin-top:3px; }}
+          #pet-wrap .pet-tip{{ font-size:11.5px; color:#64748b; margin-top:4px; min-height:16px; }}
+          #pet-wrap .pet-btns{{ margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }}
+          #pet-wrap .pet-btn{{
+            font-size:11px; padding:3px 9px; border-radius:8px; cursor:pointer;
+            border:1px solid #93c5fd; background:#eff6ff; color:#1e40af;
+            transition:background .15s;
+          }}
+          #pet-wrap .pet-btn:hover{{ background:#dbeafe; }}
+          #pet-wrap .pet-hint{{ font-size:10px; color:#94a3b8; margin-top:5px; }}
+          @keyframes petBounce{{ 0%,100%{{transform:translateY(0)}} 50%{{transform:translateY(-7px)}} }}
+          @keyframes petWobble{{ 0%,100%{{transform:rotate(-8deg)}} 50%{{transform:rotate(8deg)}} }}
+          @keyframes petFade{{ from{{opacity:0;transform:translateY(8px)}} to{{opacity:1;transform:translateY(0)}} }}
+        `;
+        d.head.appendChild(sty);
+      }}
+
+      // 2) 移除旧的 pet-wrap（每次 Streamlit rerun 都会重新执行此脚本）
+      var old = d.getElementById('pet-wrap');
+      if (old) old.remove();
+
+      // 3) 构建宠物 DOM
+      var tips = {tips_js};
+      var wrap = d.createElement('div');
+      wrap.id = 'pet-wrap';
+
+      var bubble = d.createElement('div');
+      bubble.className = 'pet-bubble';
+      bubble.id = 'pet-bubble';
+      var paramsHtml = {params_js} ? '<div class="pet-params">⚙️ ' + {params_js} + '</div>' : '';
+      bubble.innerHTML =
+        '<div class="pet-status">' + {status_js} + '</div>' +
+        '<div class="pet-sub">' + {sub_js} + '</div>' +
+        '<div class="pet-level">' + {level_js} + '</div>' +
+        '<div class="pet-progress"><i></i></div>' +
+        paramsHtml +
+        '<div class="pet-tip" id="pet-tip-line">·</div>' +
+        '<div class="pet-btns">' +
+          '<span class="pet-btn" onclick="window.__petTop()">⬆ 回顶</span>' +
+          '<span class="pet-btn" onclick="window.__petPrinciple()">📖 看原理</span>' +
+          '<span class="pet-btn" onclick="window.__petReset()">🔄 重置参数</span>' +
+          '<span class="pet-btn" onclick="window.__petHide()">✕ 收起</span>' +
+        '</div>' +
+        '<div class="pet-hint">拖动我可移动 · 双击我折叠气泡</div>';
+
+      var emojiEl = d.createElement('div');
+      emojiEl.className = 'pet-emoji';
+      emojiEl.id = 'pet-emoji';
+      emojiEl.textContent = {emoji_js};
+
+      wrap.appendChild(bubble);
+      wrap.appendChild(emojiEl);
+      d.body.appendChild(wrap);
+
+      // 4) 恢复保存的位置
+      try {{
+        var saved = JSON.parse(w.localStorage.getItem('petPos') || 'null');
+        if (saved && typeof saved.left === 'number') {{
+          wrap.style.left = saved.left + 'px';
+          wrap.style.top = saved.top + 'px';
+          wrap.style.right = 'auto'; wrap.style.bottom = 'auto';
+        }}
+      }} catch(e){{}}
+
+      // 5) 提示轮播
+      var tipLine = d.getElementById('pet-tip-line');
+      var idx = 0;
+      function showTip(){{
+        if (tipLine && tips.length) {{
+          tipLine.textContent = tips[idx % tips.length];
+          idx++;
+        }}
+      }}
+      showTip();
+      var tipTimer = w.setInterval(showTip, 4000);
+      // 清理上一轮桌宠留下的轮播计时器，避免 Streamlit rerun 后计时器累积。
+      if (w.__petTipTimer) w.clearInterval(w.__petTipTimer);
+      w.__petTipTimer = tipTimer;
+
+      // 6) 拖动逻辑
+      var dragging = false, sx=0, sy=0, ox=0, oy=0, moved=false;
+      function down(e){{
+        dragging = true; moved = false;
+        var p = e.touches ? e.touches[0] : e;
+        sx = p.clientX; sy = p.clientY;
+        var r = wrap.getBoundingClientRect();
+        ox = r.left; oy = r.top;
+        emojiEl.classList.add('pet-dragging');
+        e.preventDefault();
+      }}
+      function move(e){{
+        if (!dragging) return;
+        var p = e.touches ? e.touches[0] : e;
+        var nx = ox + (p.clientX - sx);
+        var ny = oy + (p.clientY - sy);
+        nx = Math.max(4, Math.min(w.innerWidth - 60, nx));
+        ny = Math.max(4, Math.min(w.innerHeight - 60, ny));
+        wrap.style.left = nx + 'px'; wrap.style.top = ny + 'px';
+        wrap.style.right = 'auto'; wrap.style.bottom = 'auto';
+        if (Math.abs(p.clientX - sx) > 4 || Math.abs(p.clientY - sy) > 4) moved = true;
+      }}
+      function up(){{
+        if (!dragging) return;
+        dragging = false;
+        emojiEl.classList.remove('pet-dragging');
+        var r = wrap.getBoundingClientRect();
+        try {{ w.localStorage.setItem('petPos', JSON.stringify({{left:r.left, top:r.top}})); }} catch(e){{}}
+      }}
+      emojiEl.addEventListener('mousedown', down);
+      emojiEl.addEventListener('touchstart', down, {{passive:false}});
+      d.addEventListener('mousemove', move);
+      d.addEventListener('touchmove', move, {{passive:false}});
+      d.addEventListener('mouseup', up);
+      d.addEventListener('touchend', up);
+
+      // 7) 单击切换台词
+      emojiEl.addEventListener('click', function(e){{
+        if (moved) return;
+        showTip();
+        emojiEl.style.transform = 'scale(1.18)';
+        setTimeout(function(){{ emojiEl.style.transform=''; }}, 180);
+      }});
+
+      // 8) 双击折叠
+      emojiEl.addEventListener('dblclick', function(e){{
+        bubble.classList.toggle('pet-hidden');
+      }});
+
+      // 9) 悬停摇摆
+      emojiEl.addEventListener('mouseenter', function(){{
+        emojiEl.style.animation = 'petWobble .6s ease-in-out infinite';
+      }});
+      emojiEl.addEventListener('mouseleave', function(){{
+        emojiEl.style.animation = 'petBounce 2.6s ease-in-out infinite';
+      }});
+
+      // 10) 快捷按钮：用 window 全局函数，避免 iframe 销毁后事件丢失
+      w.__petTop = function(){{
+        // Streamlit 可能把滚动交给内部容器，不能只调用 window.scrollTo。
+        var targets = [w, d.scrollingElement, d.documentElement,
+          d.querySelector('[data-testid="stAppViewContainer"]'),
+          d.querySelector('[data-testid="stMain"]'),
+          d.querySelector('section.main')];
+        targets.forEach(function(target){{
+          if (!target) return;
+          try {{
+            if (target === w) target.scrollTo({{top:0, behavior:'smooth'}});
+            else target.scrollTop = 0;
+          }} catch(e){{}}
+        }});
+      }};
+      w.__petPrinciple = function(){{
+        var p = d.querySelector('.principle-panel');
+        if (p) p.scrollIntoView({{behavior:'smooth', block:'center'}});
+      }};
+      w.__petReset = function(){{
+        // 通过 query 参数通知 Python 端重置，避免创建一个会露出的隐藏按钮。
+        try {{
+          var u = new URL(w.location.href);
+          u.searchParams.set('pet_reset', '1');
+          w.location.href = u.toString();
+        }} catch(e) {{ w.location.reload(); }}
+      }};
+      w.__petHide = function(){{
+        var b = d.getElementById('pet-bubble');
+        if (b) b.classList.toggle('pet-hidden');
+      }};
+    }})();
+    </script>
+    """
+
+    # 用 components.html 渲染：允许执行 JS，height=0 让 iframe 不占空间
+    components.html(pet_code, height=0)
+
+
+def _update_pet_status(status_text, emoji_text):
+    """轻量更新桌宠状态：只注入一小段 JS 修改已有元素的文字，
+    不重新创建整个组件，避免在 st.write_stream 附近调用 components.html 引发协议错误。"""
+    safe_status = status_text.replace('\\', '\\\\').replace("'", "\\'").replace('<', '&lt;').replace('>', '&gt;')
+    safe_emoji = emoji_text.replace('\\', '\\\\').replace("'", "\\'")
+    js_code = f"""
+    <script>
+    (function(){{
+      var d = window.parent.document;
+      var s = d.querySelector('#pet-wrap .pet-status');
+      var e = d.getElementById('pet-emoji');
+      if (s) s.textContent = '{safe_status}';
+      if (e) e.textContent = '{safe_emoji}';
+    }})();
+    </script>
+    """
+    components.html(js_code, height=0)
+
+
 def _load_streamlit_secrets_to_environ():
     """把 Streamlit Cloud Secrets 中的 API 配置注入环境变量，供 AI 助手读取。
     本地无 secrets.toml 时静默跳过，不影响环境变量方式。"""
+    # 在本地运行且没有 secrets.toml 时，不访问 st.secrets；旧版
+    # Streamlit 会把这次访问记录为页面错误并在测试输出中反复提示。
+    _secret_candidates = (
+        os.path.join(os.getcwd(), ".streamlit", "secrets.toml"),
+        os.path.join(os.path.dirname(__file__), ".streamlit", "secrets.toml"),
+        os.path.join(os.path.expanduser("~"), ".streamlit", "secrets.toml"),
+    )
+    if not any(os.path.isfile(_path) for _path in _secret_candidates):
+        return
     try:
         _secrets = st.secrets
     except Exception:
@@ -43,22 +371,20 @@ def _load_streamlit_secrets_to_environ():
     for _name in ("DASHSCOPE_API_KEY", "DASHSCOPE_KEY", "QWEN_API_KEY"):
         try:
             _val = _secrets[_name]
-        except (KeyError, TypeError):
+        except (KeyError, TypeError, FileNotFoundError):
             continue
         if _val and not os.getenv(_name):
             os.environ[_name] = str(_val)
     # 可选的自定义端点/模型
     for _env in ("DASHSCOPE_API_URL", "DASHSCOPE_MODEL",
-                 "OPENAI_BASE_URL", "OPENAI_MODEL", "OPENAI_API_KEY"):
+                 "OPENAI_BASE_URL", "OPENAI_API_BASE", "OPENAI_MODEL", "OPENAI_API_KEY"):
         try:
             _val = _secrets[_env]
-        except (KeyError, TypeError):
+        except (KeyError, TypeError, FileNotFoundError):
             continue
         if _val and not os.getenv(_env):
             os.environ[_env] = str(_val)
 
-
-_load_streamlit_secrets_to_environ()
 
 from optical_calculator import OpticalCalculator
 try:
@@ -78,6 +404,11 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# 读取 Streamlit Cloud Secrets 必须在 set_page_config 之后执行：
+# 访问 st.secrets 会被 Streamlit 视为一次 API 调用，否则会触发
+# “set_page_config() can only be called once / first command”异常。
+_load_streamlit_secrets_to_environ()
 
 st.markdown("""
 <style>
@@ -1119,6 +1450,26 @@ st.markdown("""
 
 calculator = OpticalCalculator()
 
+# 桌面宠物“重置参数”：通过 query 参数触发，避免额外的隐藏按钮出现在页面上。
+_pet_reset_requested = False
+try:
+    _pet_reset_requested = str(st.query_params.get("pet_reset", "")) == "1"
+except Exception:
+    try:
+        _pet_reset_requested = "1" in st.experimental_get_query_params().get("pet_reset", [])
+    except Exception:
+        _pet_reset_requested = False
+if _pet_reset_requested:
+    try:
+        st.query_params.clear()
+    except Exception:
+        try:
+            st.experimental_set_query_params()
+        except Exception:
+            pass
+    st.session_state.clear()
+    st.rerun()
+
 # 初始化智能体（使用session_state保持状态）
 if 'agent' not in st.session_state:
     try:
@@ -1149,6 +1500,8 @@ mode_type = st.sidebar.radio(
     mode_options,
     help="实验模式：自由探索 | 教学模式：分步指导 | 练习模式：自我评估"
 )
+
+# pet_just_answered 在末尾 render_desktop_pet 之后清除，不在这里清
 
 st.sidebar.markdown("## 🔎 观察选项")
 show_phase = st.sidebar.checkbox("显示相位曲线", value=False, help="相位曲线用于进阶分析，默认隐藏以突出实验现象。")
@@ -1636,7 +1989,9 @@ with col2:
     with st.expander("查看实验光路与装置结构", expanded=False):
         st.image(
             load_uniform_diagram(diagram_files[experiment_mode]),
-            use_container_width=True,
+            # Streamlit 1.32 uses use_column_width for images (the newer
+            # use_container_width argument raises an exception there).
+            use_column_width=True,
             caption=f"{experiment_mode}光路示意",
         )
 
@@ -2219,9 +2574,12 @@ with st.expander("📐 物理公式速查"):
     - d：薄膜厚度/光程差
     """)
 
-with st.expander("🤖 智能助手", expanded=False):
+# 有待处理问题或刚回答完时，强制保持 expander 展开
+_force_open_assistant = bool(st.session_state.get("pending_agent_question")) or bool(st.session_state.get("pet_just_answered"))
+with st.expander("🤖 智能助手", expanded=_force_open_assistant):
     st.markdown("## 🤖 智能助手")
     if hasattr(agent, "refresh_environment_config"):
+        # Keep a manually saved configuration during Streamlit reruns.
         agent.refresh_environment_config()
     
     # API连接状态显示和测试
@@ -2232,6 +2590,7 @@ with st.expander("🤖 智能助手", expanded=False):
             status_colors = {
                 "connected": "🟢",
                 "ready": "🟢",
+                "configured_offline": "🟡",
                 "disconnected": "🔴",
                 "timeout": "🟡",
                 "error": "🔴",
@@ -2240,13 +2599,14 @@ with st.expander("🤖 智能助手", expanded=False):
             status_texts = {
                 "connected": "已连接",
                 "ready": "系统 API 已配置",
+                "configured_offline": "API 已配置（网络暂不可用）",
                 "disconnected": "未连接",
                 "timeout": "连接超时",
                 "error": "连接错误",
                 "unknown": "未知状态"
             }
             st.markdown(f"""
-            <div style="padding: 12px 14px; border-radius: 8px; color:#0f172a; background-color: {'#dcfce7' if agent.api_status in ['connected', 'ready'] else '#fee2e2'};">
+            <div style="padding: 12px 14px; border-radius: 8px; color:#0f172a; background-color: {'#dcfce7' if agent.api_status in ['connected', 'ready'] else ('#fef3c7' if agent.api_status == 'configured_offline' else '#fee2e2')};">
                 {status_colors.get(agent.api_status, '⚪')} <strong>{status_texts.get(agent.api_status, '未知')}</strong>
             </div>
             """, unsafe_allow_html=True)
@@ -2263,7 +2623,10 @@ with st.expander("🤖 智能助手", expanded=False):
                     if success:
                         st.success("✅ API连接成功！")
                     else:
-                        st.error(f"❌ 连接失败：{agent.api_error_message}")
+                        if getattr(agent, "api_status", "") == "configured_offline":
+                            st.info(f"ℹ️ {agent.api_error_message}")
+                        else:
+                            st.error(f"❌ 连接失败：{agent.api_error_message}")
     
     st.markdown("---")
     
@@ -2308,6 +2671,8 @@ with st.expander("🤖 智能助手", expanded=False):
                 "波片类型": waveplate_type
             }
         agent.set_experiment_context(experiment_mode, current_params)
+        # 暂存给末尾桌面宠物显示参数摘要
+        st.session_state["pet_params"] = current_params
     
     is_enhanced = hasattr(agent, 'switch_mode')
     
@@ -2343,7 +2708,7 @@ with st.expander("🤖 智能助手", expanded=False):
         
         st.markdown("---")
     
-    st.markdown("**⚙️ API 配置（手动填写，立即生效）：**")
+    st.markdown("**⚙️ API 配置（默认自动读取系统变量，无需手动填写）：**")
 
     def _cfg_state(key, fallback):
         if key not in st.session_state:
@@ -2355,11 +2720,14 @@ with st.expander("🤖 智能助手", expanded=False):
 
     if env_api_key:
         env_name = getattr(agent, "api_key_env_name", "DASHSCOPE_API_KEY")
-        st.success(f"✅ 已自动加载 {env_name}（系统环境变量），可直接使用；也可在下方手动填写覆盖。")
+        st.success(f"✅ 已自动加载 {env_name}（系统环境变量），可直接使用；无需重复填写。")
     else:
         st.info("ℹ️ 未检测到环境变量，请在下方手动填写 API Key 后点击“保存配置”即可生效。")
 
-    with st.expander("展开手动配置（API Key / 端点 / 模型）", expanded=not env_api_key):
+    # 智能助手已经位于一个 expander 内；Streamlit 不允许嵌套 expander，
+    # 因此这里使用普通容器展示配置项，保证所有版本都能正常运行。
+    st.markdown("**展开手动配置（API Key / 端点 / 模型）**")
+    with st.container():
         _cfg_state("manual_api_type", api_type if api_type in ("dashscope", "ollama") else "dashscope")
         manual_type = st.radio(
             "服务类型",
@@ -2383,8 +2751,10 @@ with st.expander("🤖 智能助手", expanded=False):
                 key="manual_api_url_input",
                 help="DashScope 官方：https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions\n"
                      "国际版：https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions\n"
-                     "DeepSeek：https://api.deepseek.com/v1/chat/completions  等",
+                     "DeepSeek：https://api.deepseek.com/v1/chat/completions  等\n"
+                     "注意：bailian.console.aliyun.com 是控制台管理网址，不能作为 API 端点填写。",
             )
+            st.caption("百炼控制台仅用于获取 API Key；程序请求请使用上面的兼容接口地址。")
             col_k, col_m = st.columns([3, 2])
             with col_k:
                 api_key = st.text_input(
@@ -2435,14 +2805,14 @@ with st.expander("🤖 智能助手", expanded=False):
                 if hasattr(agent, "set_api_config"):
                     agent.set_api_config(api_url, model_name)
                 else:
-                    agent.api_url = api_url
+                    agent.api_url = agent._normalize_chat_endpoint(api_url) if hasattr(agent, "_normalize_chat_endpoint") else api_url
                     agent.model_name = model_name
                 if chosen_type == "dashscope":
                     if hasattr(agent, "set_api_key"):
                         agent.set_api_key(api_key)
                     else:
                         agent.dashscope_api_key = api_key.strip()
-                    st.session_state["manual_api_url"] = api_url.strip()
+                    st.session_state["manual_api_url"] = getattr(agent, "api_url", api_url.strip())
                     st.session_state["manual_model"] = model_name.strip()
                     st.session_state["manual_api_key"] = api_key.strip()
                     if api_key.strip():
@@ -2450,7 +2820,7 @@ with st.expander("🤖 智能助手", expanded=False):
                     else:
                         st.warning("⚠️ 未填写 API Key，请填入后再次保存。")
                 else:
-                    st.session_state["manual_ollama_url"] = api_url.strip()
+                    st.session_state["manual_ollama_url"] = getattr(agent, "api_url", api_url.strip())
                     st.session_state["manual_ollama_model"] = model_name.strip()
                     st.success("✅ Ollama 配置已保存。点击“测试连接”验证。")
         with col_clear:
@@ -2481,7 +2851,7 @@ with st.expander("🤖 智能助手", expanded=False):
             history = agent.conversation_history
         elif hasattr(agent, 'get_history'):
             history = agent.get_history()
-        
+
         if not history:
             st.info("👋 还没有对话记录，开始提问吧！")
         else:
@@ -2494,53 +2864,80 @@ with st.expander("🤖 智能助手", expanded=False):
                 content = content.replace(r"\(", "$").replace(r"\)", "$")
                 with st.chat_message(role):
                     st.markdown(content)
-    
+
+        # 流式输出当前提问的回复（pending_agent_question 由按钮回调设置）
+        pending_question = st.session_state.get("pending_agent_question")
+        if pending_question:
+            # 流式输出前：用轻量 JS 更新桌宠为"正在思考..."
+            # 上一次渲染的桌宠元素仍在 DOM 中，只需更新文字即可
+            _update_pet_status("🤔 小光正在思考...", "😿")
+
+            normalized_q = pending_question.replace(r"\[", "$$").replace(r"\]", "$$").replace(r"\(", "$").replace(r"\)", "$")
+            with st.chat_message("user"):
+                st.markdown(normalized_q)
+            with st.chat_message("assistant"):
+                if hasattr(agent, 'stream_response'):
+                    # 流式：边生成边显示，显著降低首字等待时间
+                    stream_gen = agent.stream_response(pending_question)
+                    full_reply = st.write_stream(stream_gen)
+                    # 处理 LaTeX 分隔符，保证公式正常渲染
+                    if full_reply:
+                        normalized = full_reply.replace(r"\[", "$$").replace(r"\]", "$$").replace(r"\(", "$").replace(r"\)", "$")
+                        if normalized != full_reply:
+                            st.markdown(normalized)
+                else:
+                    # 降级：非流式一次性输出
+                    reply = agent.generate_response(pending_question)
+                    reply = reply.replace(r"\[", "$$").replace(r"\]", "$$").replace(r"\(", "$").replace(r"\)", "$")
+                    st.markdown(reply)
+            # 清空 pending，下次渲染走正常历史显示
+            st.session_state.pop("pending_agent_question", None)
+            # 标记“刚回答完”，供桌面宠物显示；下一次非回答运行会自动清除
+            st.session_state["pet_just_answered"] = True
+            # 触发新一轮 rerun，让末尾的 render_desktop_pet 创建新桌宠显示"回答完"
+            # components.html 在 st.write_stream 后调用不可靠，必须通过 rerun 重走一遍
+            st.rerun()
+
     st.markdown("---")
-    
+
     # 用户输入
-    def submit_agent_question(question=None):
-        prompt = question if question is not None else st.session_state.get("agent_input", "")
-        prompt = (prompt or "").strip()
-        if not prompt:
-            return
-        agent.generate_response(prompt)
-        if question is None:
-            st.session_state["agent_input"] = ""
-
-    def clear_agent_conversation():
-        if hasattr(agent, 'clear_history'):
-            agent.clear_history()
-        elif hasattr(agent, 'conversation_history'):
-            agent.conversation_history = []
-
     user_input = st.text_area(
         "💭 请输入您的问题：",
         placeholder="例如：双缝干涉的原理是什么？如何计算条纹间距？",
         key="agent_input",
         height=80
     )
-    
+
     col_agent1, col_agent2 = st.columns([4, 1])
     with col_agent1:
-        st.button(
+        if st.button(
             "🚀 发送",
             type="primary",
             key="send_msg",
-            on_click=submit_agent_question,
             use_container_width=True,
-        )
-    
+        ):
+            prompt = (user_input or "").strip()
+            if prompt:
+                st.session_state["pending_agent_question"] = prompt
+                st.session_state["agent_input"] = ""
+                st.rerun()
+
     with col_agent2:
-        st.button(
+        if st.button(
             "🗑️ 清空",
             key="clear_chat",
-            on_click=clear_agent_conversation,
             use_container_width=True,
-        )
-    
-    # 快捷提问按钮
+        ):
+            if hasattr(agent, 'clear_history'):
+                agent.clear_history()
+            elif hasattr(agent, 'conversation_history'):
+                agent.conversation_history = []
+            st.session_state.pop("pending_agent_question", None)
+            st.rerun()
+
+    # 快捷提问按钮（2 列布局，让每个按钮更宽、文字更清晰）
     st.markdown("**⚡ 快捷提问：**")
-    
+
     quick_questions = []
     if is_enhanced and hasattr(agent, 'get_quick_questions'):
         quick_questions = agent.get_quick_questions()
@@ -2569,18 +2966,39 @@ with st.expander("🤖 智能助手", expanded=False):
             "偏振态如何影响干涉？",
             "迈克耳孙干涉仪的应用"
         ]
-    
-    cols = st.columns(min(5, len(quick_questions)))
-    for i, q in enumerate(quick_questions):
-        with cols[i]:
-            st.button(
-                q,
-                key=f"quick_{i}",
-                help=f"快速提问：{q}",
-                on_click=submit_agent_question,
-                args=(q,),
-                use_container_width=True,
-            )
+
+    # 自定义样式：让快捷按钮文字更大、更清晰
+    st.markdown(
+        """
+        <style>
+        div.stButton > button[data-testid="stBaseButton-secondary"] {
+            font-size: 0.95rem;
+            font-weight: 600;
+            padding: 0.55rem 0.75rem;
+            line-height: 1.4;
+            white-space: normal;
+            text-align: left;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # 2 列布局：每个按钮更宽，中文长文字也能清晰显示
+    num_cols = 2
+    for idx in range(0, len(quick_questions), num_cols):
+        row = quick_questions[idx:idx + num_cols]
+        cols = st.columns(num_cols)
+        for j, q in enumerate(row):
+            with cols[j]:
+                if st.button(
+                    q,
+                    key=f"quick_{idx + j}",
+                    help=f"快速提问：{q}",
+                    use_container_width=True,
+                ):
+                    st.session_state["pending_agent_question"] = q
+                    st.rerun()
     
     # 高级功能提示
     st.markdown("---")
@@ -2588,3 +3006,16 @@ with st.expander("🤖 智能助手", expanded=False):
         st.info("💡 **提示**：安装 agent_module_v2.py 可获得增强版智能体，支持多种对话模式！")
     else:
         st.success("✨ 增强版智能体已启用！支持实验上下文感知和智能问答。")
+
+
+# 桌面宠物：在页面右下角显示当前正在进行的操作（实验/模式/身份/参数）
+render_desktop_pet(
+    experiment_mode,
+    mode_type,
+    user_role,
+    params=st.session_state.get("pet_params"),
+    just_answered=bool(st.session_state.get("pet_just_answered", False)),
+    agent_status=getattr(agent, "api_status", "unknown"),
+)
+# 渲染完"刚回答完"状态后清除标志，下次 rerun 恢复正常显示
+st.session_state["pet_just_answered"] = False
