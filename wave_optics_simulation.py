@@ -2054,7 +2054,7 @@ with col2:
     with st.expander("查看实验光路与装置结构", expanded=False):
         st.image(
             load_uniform_diagram(diagram_files[experiment_mode]),
-            use_column_width=True,
+            width="stretch",
             caption=f"{experiment_mode}光路示意",
         )
 
@@ -2109,7 +2109,7 @@ with col2:
                 ax3.set_xlabel('屏上位置 (mm)')
                 ax3.set_ylabel('相位差 (rad)')
                 ax3.grid(True, alpha=0.2)
-            st.pyplot(fig, use_container_width=True)
+            st.pyplot(fig, width="stretch")
             plt.close(fig)
 
         elif experiment_mode == "偏振干涉":
@@ -2141,7 +2141,7 @@ with col2:
             ax2.set_ylabel('Ey')
             ax2.set_title(f"偏振椭圆：{info['polarization_state']}", fontweight='bold')
             plt.tight_layout()
-            st.pyplot(fig, use_container_width=True)
+            st.pyplot(fig, width="stretch")
             plt.close(fig)
         
         elif experiment_mode == "迈克耳孙干涉":
@@ -2175,7 +2175,7 @@ with col2:
             ax2.set_title('探测器接收的单色条纹', loc='left', fontsize=11)
             
             plt.tight_layout(pad=1.5)
-            st.pyplot(fig, use_container_width=True)
+            st.pyplot(fig, width="stretch")
             plt.close(fig)
         
         elif experiment_mode == "薄膜干涉":
@@ -2205,7 +2205,7 @@ with col2:
             ax2.set_title('单色反射光的明暗分布', loc='left', fontsize=11)
             
             plt.tight_layout(pad=1.5)
-            st.pyplot(fig, use_container_width=True)
+            st.pyplot(fig, width="stretch")
             plt.close(fig)
 
 st.markdown("---")
@@ -2436,7 +2436,7 @@ if mode_type == "教学模式":
             st.success("已保存为简洁实验记录。")
 
         if st.session_state.get("inquiry_records"):
-            st.dataframe(pd.DataFrame(st.session_state.inquiry_records), use_container_width=True)
+            st.dataframe(pd.DataFrame(st.session_state.inquiry_records), width="stretch")
 
 if mode_type == "练习模式":
     st.markdown("## ❓ 练习题目")
@@ -2985,7 +2985,7 @@ with st.expander("🤖 智能助手", expanded=_force_open_assistant):
             "🚀 发送",
             type="primary",
             key="send_msg",
-            use_container_width=True,
+            width="stretch",
         ):
             prompt = (user_input or "").strip()
             if prompt:
@@ -2997,7 +2997,7 @@ with st.expander("🤖 智能助手", expanded=_force_open_assistant):
         if st.button(
             "🗑️ 清空",
             key="clear_chat",
-            use_container_width=True,
+            width="stretch",
         ):
             if hasattr(agent, 'clear_history'):
                 agent.clear_history()
@@ -3066,7 +3066,7 @@ with st.expander("🤖 智能助手", expanded=_force_open_assistant):
                     q,
                     key=f"quick_{idx + j}",
                     help=f"快速提问：{q}",
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     st.session_state["pending_agent_question"] = q
                     st.rerun()
