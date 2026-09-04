@@ -211,7 +211,7 @@ def render_desktop_pet(experiment_mode, mode_type, user_role, params=None,
       wrap.appendChild(emojiEl);
       d.body.appendChild(wrap);
 
-      // 4) 恢复保存的位置
+      // 4) 恢复保存的位置；若尚未拖动过，默认避开右侧表单区域
       try {{
         var saved = JSON.parse(w.localStorage.getItem('petPos') || 'null');
         if (saved && typeof saved.left === 'number') {{
@@ -1368,6 +1368,42 @@ st.markdown("""
         box-shadow: none !important;
     }
 
+    /* API 配置与探究记录输入框：强制使用高对比度浅色主题。
+       BaseWeb 会把实际背景放在嵌套容器上，仅设置 input 本身不够。 */
+    [data-testid="stTextInput"] > div,
+    [data-testid="stTextInput"] [data-baseweb="input"],
+    [data-testid="stTextInput"] [data-baseweb="input"] > div,
+    [data-testid="stTextArea"] [data-baseweb="textarea"],
+    [data-testid="stTextArea"] [data-baseweb="textarea"] > div {
+        background: #ffffff !important;
+        background-color: #ffffff !important;
+        border-color: #94a3b8 !important;
+        box-shadow: none !important;
+    }
+
+    [data-testid="stTextInput"] input,
+    [data-testid="stTextArea"] textarea {
+        background: #ffffff !important;
+        color: #0f172a !important;
+        -webkit-text-fill-color: #0f172a !important;
+        caret-color: #0f766e !important;
+        opacity: 1 !important;
+        font-weight: 500 !important;
+    }
+
+    [data-testid="stTextInput"] input::placeholder,
+    [data-testid="stTextArea"] textarea::placeholder {
+        color: #64748b !important;
+        -webkit-text-fill-color: #64748b !important;
+        opacity: 1 !important;
+    }
+
+    [data-testid="stTextInput"] svg,
+    [data-testid="stTextArea"] svg {
+        color: #475569 !important;
+        fill: currentColor !important;
+    }
+
     [data-testid="stSlider"] [role="slider"] {
         border-color: var(--lab-teal) !important;
         background: #ffffff !important;
@@ -2018,7 +2054,7 @@ with col2:
     with st.expander("查看实验光路与装置结构", expanded=False):
         st.image(
             load_uniform_diagram(diagram_files[experiment_mode]),
-            width="stretch",
+            use_column_width=True,
             caption=f"{experiment_mode}光路示意",
         )
 
@@ -2073,7 +2109,7 @@ with col2:
                 ax3.set_xlabel('屏上位置 (mm)')
                 ax3.set_ylabel('相位差 (rad)')
                 ax3.grid(True, alpha=0.2)
-            st.pyplot(fig, width="stretch")
+            st.pyplot(fig, use_container_width=True)
             plt.close(fig)
 
         elif experiment_mode == "偏振干涉":
@@ -2105,7 +2141,7 @@ with col2:
             ax2.set_ylabel('Ey')
             ax2.set_title(f"偏振椭圆：{info['polarization_state']}", fontweight='bold')
             plt.tight_layout()
-            st.pyplot(fig, width="stretch")
+            st.pyplot(fig, use_container_width=True)
             plt.close(fig)
         
         elif experiment_mode == "迈克耳孙干涉":
@@ -2139,7 +2175,7 @@ with col2:
             ax2.set_title('探测器接收的单色条纹', loc='left', fontsize=11)
             
             plt.tight_layout(pad=1.5)
-            st.pyplot(fig, width="stretch")
+            st.pyplot(fig, use_container_width=True)
             plt.close(fig)
         
         elif experiment_mode == "薄膜干涉":
@@ -2169,7 +2205,7 @@ with col2:
             ax2.set_title('单色反射光的明暗分布', loc='left', fontsize=11)
             
             plt.tight_layout(pad=1.5)
-            st.pyplot(fig, width="stretch")
+            st.pyplot(fig, use_container_width=True)
             plt.close(fig)
 
 st.markdown("---")
@@ -2400,7 +2436,7 @@ if mode_type == "教学模式":
             st.success("已保存为简洁实验记录。")
 
         if st.session_state.get("inquiry_records"):
-            st.dataframe(pd.DataFrame(st.session_state.inquiry_records), width="stretch")
+            st.dataframe(pd.DataFrame(st.session_state.inquiry_records), use_container_width=True)
 
 if mode_type == "练习模式":
     st.markdown("## ❓ 练习题目")
@@ -2949,7 +2985,7 @@ with st.expander("🤖 智能助手", expanded=_force_open_assistant):
             "🚀 发送",
             type="primary",
             key="send_msg",
-            width="stretch",
+            use_container_width=True,
         ):
             prompt = (user_input or "").strip()
             if prompt:
@@ -2961,7 +2997,7 @@ with st.expander("🤖 智能助手", expanded=_force_open_assistant):
         if st.button(
             "🗑️ 清空",
             key="clear_chat",
-            width="stretch",
+            use_container_width=True,
         ):
             if hasattr(agent, 'clear_history'):
                 agent.clear_history()
@@ -3030,7 +3066,7 @@ with st.expander("🤖 智能助手", expanded=_force_open_assistant):
                     q,
                     key=f"quick_{idx + j}",
                     help=f"快速提问：{q}",
-                    width="stretch",
+                    use_container_width=True,
                 ):
                     st.session_state["pending_agent_question"] = q
                     st.rerun()
