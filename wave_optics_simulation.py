@@ -1385,23 +1385,52 @@ st.markdown("""
     }
 
     [data-testid="stChatMessage"] {
-        margin: 0.55rem 0;
-        padding: 0.8rem 1rem;
+        margin: 0.65rem 0;
+        padding: 1rem 1.1rem;
         border: 1px solid var(--lab-line);
-        border-radius: 6px;
+        border-radius: 8px;
         background: #ffffff;
-        box-shadow: none;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
 
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
-        border-color: #b8ddd8;
-        background: #edf7f6;
+        border-color: #86c5bc;
+        background: #e6f3f0;
     }
 
     [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] p,
     [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] li {
-        color: var(--lab-ink) !important;
-        -webkit-text-fill-color: var(--lab-ink) !important;
+        color: #0f172a !important;
+        -webkit-text-fill-color: #0f172a !important;
+        font-size: 1.02rem !important;
+        line-height: 1.65 !important;
+    }
+
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h1,
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h2,
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h3,
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h4,
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h5,
+    [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] h6 {
+        color: #0f172a !important;
+        -webkit-text-fill-color: #0f172a !important;
+        font-weight: 700 !important;
+    }
+
+    [data-testid="stChatMessage"] code {
+        background: #f1f5f9 !important;
+        color: #be123c !important;
+        padding: 0.1rem 0.35rem !important;
+        border-radius: 3px !important;
+        font-size: 0.92rem !important;
+    }
+
+    [data-testid="stChatMessage"] pre {
+        background: #1e293b !important;
+        color: #e2e8f0 !important;
+        border-radius: 6px !important;
+        padding: 0.75rem 1rem !important;
+        overflow-x: auto !important;
     }
 
     hr {
@@ -2845,10 +2874,18 @@ with st.expander("🤖 智能助手", expanded=_force_open_assistant):
     with chat_container:
         st.markdown("**💬 对话历史：**")
         history = []
+        pending_q = st.session_state.get("pending_agent_question")
         if hasattr(agent, 'conversation_history'):
-            history = agent.conversation_history
+            # 用拷贝避免 stream_response 内部修改 conversation_history 时影响已渲染的 history
+            history = list(agent.conversation_history)
         elif hasattr(agent, 'get_history'):
-            history = agent.get_history()
+            history = list(agent.get_history())
+
+        # 当 pending 问题正在处理时，跳过 history 末尾已被 stream_response 预添加的那条用户消息
+        if pending_q and history and history[-1].get("role") == "user":
+            last_user = history[-1].get("content", "").strip()
+            if last_user == pending_q.strip():
+                history = history[:-1]
 
         if not history:
             st.info("👋 还没有对话记录，开始提问吧！")
