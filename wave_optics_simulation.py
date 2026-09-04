@@ -1989,9 +1989,7 @@ with col2:
     with st.expander("查看实验光路与装置结构", expanded=False):
         st.image(
             load_uniform_diagram(diagram_files[experiment_mode]),
-            # Streamlit 1.32 uses use_column_width for images (the newer
-            # use_container_width argument raises an exception there).
-            use_column_width=True,
+            use_container_width=True,
             caption=f"{experiment_mode}光路示意",
         )
 
